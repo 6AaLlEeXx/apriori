@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mlx-lora-workbench"
+version = "0.1.0"
+description = "Self-contained MLX LoRA training, evaluation, and kernel score-delta experiments."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "pyyaml>=6.0",
+  "datasets>=2.18",
+  "mlx>=0.22; platform_system == 'Darwin'",
+  "mlx-lm>=0.21; platform_system == 'Darwin'",
+]
+
+[project.scripts]
+mlx-lora-run = "lora.cli.run:main"
+mlx-lora-eval-preds = "lora.cli.eval_predictions:main"
+mlx-lora-make-report = "lora.cli.make_report:main"
+mlx-lora-run-kernel = "lora.cli.run_kernel:main"
+mlx-lora-make-kernel-report = "lora.cli.make_kernel_report:main"
+mlx-lora-make-kernel-comparison = "lora.cli.make_kernel_comparison_report:main"
+mlx-lora-prepare-data = "lora.cli.prepare_data:main"
+smollm2-run-lora = "lora.cli.run:main"
+smollm2-eval-preds = "lora.cli.eval_predictions:main"
+smollm2-make-report = "lora.cli.make_report:main"
+smollm2-run-kernel = "lora.cli.run_kernel:main"
+smollm2-make-kernel-report = "lora.cli.make_kernel_report:main"
+smollm2-make-kernel-comparison = "lora.cli.make_kernel_comparison_report:main"
+smollm2-prepare-data = "lora.cli.prepare_data:main"
+
+[dependency-groups]
+dev = [
+  "basedpyright>=1.39.3",
+  "pytest>=7.4",
+  "ruff>=0.15.11",
+]
+
+[tool.uv]
+package = true
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+packages = [
+  "lora",
+  "lora.cli",
+  "lora.kernel",
+  "lora.kernel.backends",
+]
+include-package-data = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

@@ -1,0 +1,13 @@
+extends: base.yaml
+dataset_name: dolly
+task: generic
+data_dir: data/dolly
+run_tags:
+  - mlx-lora
+  - lora
+  - dolly
+mlx_args:
+  iters: 1200
+  num_layers: 8
+  max_seq_length: 512
+notes: General instruction-following adapter built from Dolly 15K.

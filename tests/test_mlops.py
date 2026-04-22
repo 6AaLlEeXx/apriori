@@ -1,0 +1,216 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from lora.eval import evaluate_predictions
+from lora.mlops import (
+    LoraRunConfig,
+    RunPaths,
+    build_mlx_config_payload,
+    build_run_name,
+    build_train_command,
+    load_lora_run_config,
+    parse_mlx_log_line,
+    render_markdown_report,
+    summarize_metric_events,
+)
+
+
+def test_load_lora_run_config_supports_extends(tmp_path: Path) -> None:
+    base = tmp_path / "base.yaml"
+    child = tmp_path / "child.yaml"
+    base.write_text(
+        "\n".join(
+            [
+                "dataset_name: dolly",
+                "task: generic",
+                "base_model: mlx-community/SmolLM2-1.7B-Instruct",
+                "data_dir: data/dolly",
+                "mlx_args:",
+                "  batch_size: 2",
+                "  num_layers: 8",
+            ]
+        )
+    )
+    child.write_text(
+        "\n".join(
+            [
+                "extends: base.yaml",
+                "dataset_name: gsm8k",
+                "task: gsm8k",
+                "mlx_args:",
+                "  num_layers: 12",
+            ]
+        )
+    )
+
+    config = load_lora_run_config(child)
+    assert config.dataset_name == "gsm8k"
+    assert config.task == "gsm8k"
+    assert config.mlx_args["batch_size"] == 2
+    assert config.mlx_args["num_layers"] == 12
+
+
+def test_build_run_name_includes_key_knobs() -> None:
+    config = LoraRunConfig(
+        dataset_name="gsm8k",
+        base_model="mlx-community/SmolLM2-1.7B-Instruct",
+        mlx_args={
+            "num_layers": 12,
+            "max_seq_length": 640,
+            "seed": 42,
+            "lora_parameters": {"rank": 8},
+        },
+    )
+
+    run_name = build_run_name(config)
+    assert "smollm2-1-7b-instruct" in run_name
+    assert "gsm8k" in run_name
+    assert "__r8__" in run_name
+    assert "__l12__" in run_name
+    assert run_name.endswith("__s42")
+
+
+def test_build_train_command_maps_mlx_args_to_cli_flags() -> None:
+    config = LoraRunConfig(
+        dataset_name="dolly",
+        data_dir="data/dolly",
+        mlx_args={
+            "batch_size": 2,
+            "gradient_accumulation_steps": 4,
+            "mask_prompt": True,
+            "max_seq_length": 512,
+            "lora_parameters": {"rank": 8, "alpha": 16, "dropout": 0.0},
+        },
+    )
+    paths = RunPaths(
+        run_name="run-1",
+        run_dir=Path("results/runs/run-1"),
+        adapter_dir=Path("results/adapters/run-1"),
+        logs_dir=Path("results/runs/run-1/logs"),
+        train_log=Path("results/runs/run-1/logs/train.log"),
+        test_log=Path("results/runs/run-1/logs/test.log"),
+        metrics_path=Path("results/runs/run-1/metrics.jsonl"),
+        metadata_path=Path("results/runs/run-1/metadata.json"),
+        resolved_config_path=Path("results/runs/run-1/config.resolved.yaml"),
+        summary_path=Path("results/runs/run-1/summary.md"),
+        eval_path=Path("results/runs/run-1/eval.json"),
+        command_path=Path("results/runs/run-1/command.txt"),
+        mlx_config_path=Path("results/runs/run-1/mlx_config.yaml"),
+    )
+
+    command = build_train_command(config, paths)
+    assert "--batch-size" in command
+    assert "--grad-accumulation-steps" in command
+    assert "--mask-prompt" in command
+    assert "--max-seq-length" in command
+    assert "--gradient-accumulation-steps" not in command
+    assert "--lora-parameters" not in command
+    assert "-c" in command
+    payload = build_mlx_config_payload(config)
+    assert payload["lora_parameters"]["rank"] == 8
+    assert payload["lora_parameters"]["scale"] == 2.0
+    assert "alpha" not in payload["lora_parameters"]
+
+
+def test_parse_mlx_log_line_handles_train_val_and_test() -> None:
+    train = parse_mlx_log_line(
+        "Iter 10: Train loss 2.586, Learning Rate 1.000e-05, "
+        "It/sec 1.426, Tokens/sec 251.622, Trained Tokens 1764, Peak mem 31.753 GB"
+    )
+    val = parse_mlx_log_line("Iter 50: Val loss 1.487, Val took 14.056s")
+    test = parse_mlx_log_line("Test loss 1.234, Test ppl 3.436.")
+
+    assert train == {
+        "event": "train",
+        "step": 10,
+        "train_loss": 2.586,
+        "learning_rate": 1.0e-05,
+        "it_per_sec": 1.426,
+        "tokens_per_sec": 251.622,
+        "trained_tokens": 1764,
+        "peak_mem_gb": 31.753,
+    }
+    assert val == {
+        "event": "val",
+        "step": 50,
+        "val_loss": 1.487,
+        "val_seconds": 14.056,
+    }
+    assert test == {
+        "event": "test",
+        "test_loss": 1.234,
+        "test_ppl": 3.436,
+    }
+
+
+def test_summarize_metric_events_reports_best_val_and_peak_mem() -> None:
+    events = [
+        {"event": "val", "step": 1, "val_loss": 2.0},
+        {"event": "train", "step": 10, "train_loss": 1.7, "peak_mem_gb": 18.0},
+        {"event": "val", "step": 20, "val_loss": 1.4},
+        {"event": "train", "step": 20, "train_loss": 1.3, "peak_mem_gb": 18.5},
+        {"event": "test", "test_loss": 1.1, "test_ppl": 3.0},
+    ]
+
+    summary = summarize_metric_events(events)
+    assert summary["last_train_step"] == 20
+    assert summary["last_train_loss"] == 1.3
+    assert summary["best_val_loss"] == 1.4
+    assert summary["best_val_step"] == 20
+    assert summary["peak_mem_gb"] == 18.5
+    assert summary["test_ppl"] == 3.0
+
+
+def test_evaluate_predictions_supports_gsm8k_and_samsum() -> None:
+    gsm8k = evaluate_predictions(
+        [
+            {"prediction": "The answer is 42", "reference": "42"},
+            {"prediction": "17", "reference": "18"},
+        ],
+        {
+            "name": "gsm8k",
+            "metrics": ["token_f1", "gsm8k_answer_accuracy"],
+            "primary_metric": "gsm8k_answer_accuracy",
+        },
+    )
+    samsum = evaluate_predictions(
+        [{"prediction": "alice is late", "reference": "alice is late"}],
+        {
+            "name": "samsum",
+            "metrics": ["token_f1", "rouge_l_f1"],
+            "primary_metric": "rouge_l_f1",
+        },
+    )
+
+    assert gsm8k["metric_name"] == "gsm8k_answer_accuracy"
+    assert gsm8k["metric_value"] == 0.5
+    assert samsum["metric_name"] == "rouge_l_f1"
+    assert samsum["metric_value"] == 1.0
+
+
+def test_render_markdown_report_includes_task_metric() -> None:
+    report = render_markdown_report(
+        [
+            {
+                "run_name": "run-1",
+                "dataset_name": "gsm8k",
+                "task": "gsm8k",
+                "status": "completed",
+                "adapter_dir": "results/adapters/run-1",
+                "metrics": {
+                    "last_train_loss": 1.2,
+                    "best_val_loss": 1.1,
+                    "test_ppl": 2.9,
+                    "peak_mem_gb": 18.2,
+                },
+                "task_eval": {
+                    "metric_name": "gsm8k_answer_accuracy",
+                    "metric_value": 0.62,
+                },
+            }
+        ]
+    )
+
+    assert "gsm8k_answer_accuracy=0.620" in report
+    assert "run-1" in report

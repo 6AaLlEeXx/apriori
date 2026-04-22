@@ -1,0 +1,21 @@
+extends: base.yaml
+dataset_name: gsm8k
+task: gsm8k
+data_dir: data/gsm8k
+run_tags:
+  - mlx-lora
+  - lora
+  - gsm8k
+evaluation:
+  name: gsm8k
+  metrics:
+    - exact_match
+    - token_f1
+    - gsm8k_answer_accuracy
+  primary_metric: gsm8k_answer_accuracy
+mlx_args:
+  iters: 900
+  num_layers: 12
+  max_seq_length: 640
+  learning_rate: 8.0e-6
+notes: Math reasoning adapter. Keep responses short and parse final numeric answers in eval.

@@ -1,0 +1,29 @@
+dataset_name: conala
+source_dataset: neulab/conala
+output_dir: data/conala
+source:
+  type: hf
+  path: neulab/conala
+  name: curated
+  splits:
+    train: train
+    test: test
+split:
+  strategy: train_valid_existing_test
+  seed: 42
+  valid_ratio: 0.1
+mapping:
+  type: template
+  computed_fields:
+    task:
+      first_non_empty:
+        - rewritten_intent
+        - intent
+  prompt_template: |-
+    Write a Python snippet that completes the task. Return only valid Python code.
+
+    Task:
+    {task}
+  completion_template: "{snippet}"
+metadata:
+  notes: Uses computed fields to prefer rewritten_intent when present.

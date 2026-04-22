@@ -1,0 +1,31 @@
+dataset_name: dolly
+source_dataset: databricks/databricks-dolly-15k
+output_dir: data/dolly
+source:
+  type: hf
+  path: databricks/databricks-dolly-15k
+  split: train
+split:
+  strategy: ratios
+  seed: 42
+  valid_ratio: 0.05
+  test_ratio: 0.05
+mapping:
+  type: template
+  prompt_parts:
+    - Write a helpful response to the following instruction.
+    - "Instruction:\n{instruction}"
+    - template: "Context:\n{context}"
+      when_field: context
+  completion_template: "{response}"
+filters:
+  max_prompt_chars: 4000
+  max_completion_chars: 3000
+  max_total_chars: 5000
+  token_supervision:
+    enabled: true
+    tokenizer_model: mlx-community/SmolLM2-1.7B-Instruct
+    max_seq_length: 512
+    min_supervised_tokens: 1
+metadata:
+  notes: General instruction-following data with token-aware filtering.

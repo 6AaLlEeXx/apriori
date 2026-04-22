@@ -1,0 +1,20 @@
+extends: base.yaml
+dataset_name: conala
+task: conala
+data_dir: data/conala
+run_tags:
+  - mlx-lora
+  - lora
+  - conala
+evaluation:
+  name: conala
+  metrics:
+    - exact_match
+    - token_f1
+    - conala_exact_match
+  primary_metric: conala_exact_match
+mlx_args:
+  iters: 600
+  num_layers: 8
+  max_seq_length: 512
+notes: Natural-language-to-Python adapter. Start with the curated split to limit overfitting.

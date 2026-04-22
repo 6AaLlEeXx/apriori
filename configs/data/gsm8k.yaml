@@ -1,0 +1,24 @@
+dataset_name: gsm8k
+source_dataset: openai/gsm8k
+output_dir: data/gsm8k
+source:
+  type: hf
+  path: openai/gsm8k
+  name: main
+  splits:
+    train: train
+    test: test
+split:
+  strategy: train_valid_existing_test
+  seed: 42
+  valid_ratio: 0.1
+mapping:
+  type: template
+  prompt_template: |-
+    Solve the following grade-school math problem. Show your reasoning and end with `#### <answer>`.
+
+    Question:
+    {question}
+  completion_template: "{answer}"
+metadata:
+  notes: Math reasoning prompts preserve the GSM8K final-answer marker.

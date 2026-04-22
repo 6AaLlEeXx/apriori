@@ -1,0 +1,26 @@
+dataset_name: sql_create_context
+source_dataset: b-mc2/sql-create-context
+output_dir: data/sql_create_context
+source:
+  type: hf
+  path: b-mc2/sql-create-context
+  split: train
+  max_examples: 25000
+split:
+  strategy: ratios
+  seed: 42
+  valid_ratio: 0.05
+  test_ratio: 0.05
+mapping:
+  type: template
+  prompt_template: |-
+    Given the SQL schema, write a SQL query that answers the question. Return only the SQL query.
+
+    Schema:
+    {context}
+
+    Question:
+    {question}
+  completion_template: "{answer}"
+metadata:
+  notes: Text-to-SQL adapter data with a bounded source subset by default.

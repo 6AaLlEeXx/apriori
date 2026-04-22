@@ -1,0 +1,10 @@
+extends: dolly_lora_ntk.yaml
+train_limit: 4
+valid_limit: 2
+test_limit: 2
+kernel:
+  method: nystrom
+  ridge_lambda: 1.0e-2
+  rank: 4
+  num_landmarks: 4
+notes: Tiny LoRA-NTK smoke test for the kernel score-delta pipeline.

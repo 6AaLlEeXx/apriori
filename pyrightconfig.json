@@ -1,0 +1,22 @@
+{
+  "include": ["src", "tests"],
+  "typeCheckingMode": "standard",
+  "reportAny": "none",
+  "reportExplicitAny": "none",
+  "reportImplicitStringConcatenation": "none",
+  "reportMissingParameterType": "none",
+  "reportMissingTypeStubs": "none",
+  "reportUnannotatedClassAttribute": "none",
+  "reportUnknownArgumentType": "none",
+  "reportUnknownLambdaType": "none",
+  "reportUnknownMemberType": "none",
+  "reportUnknownParameterType": "none",
+  "reportUnknownVariableType": "none",
+  "reportUnusedCallResult": "none",
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": ["src"]
+    }
+  ]
+}

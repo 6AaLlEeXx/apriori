@@ -1,0 +1,16 @@
+extends: base_score_delta.yaml
+dataset_name: sql_create_context
+task: sql
+data_dir: data/sql_create_context
+backend: frozen_pair
+train_limit: 256
+valid_limit: 128
+test_limit: 128
+kernel:
+  method: nystrom
+  ridge_lambda: 1.0e-2
+  rank: 64
+  num_landmarks: 64
+backend_args:
+  pooling: completion_mean
+notes: Frozen hidden-state pair features with Nyström KRR on SQL Create Context score deltas.

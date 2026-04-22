@@ -1,0 +1,18 @@
+extends: conala.yaml
+output_dir: data/conala_mined
+source:
+  type: hf
+  path: neulab/conala
+  name: curated
+  splits:
+    train: train
+    test: test
+  append:
+    train:
+      - type: hf
+        path: neulab/conala
+        name: mined
+        split: train
+        max_examples: 10000
+metadata:
+  notes: Curated CoNaLa with a sampled mined subset appended to train.

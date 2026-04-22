@@ -1,0 +1,23 @@
+dataset_name: samsum
+source_dataset: knkarthick/samsum
+output_dir: data/samsum
+source:
+  type: hf
+  path: knkarthick/samsum
+  splits:
+    train: train
+    valid: validation
+    test: test
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  prompt_template: |-
+    Summarize the following conversation in the third person.
+
+    Dialogue:
+    {dialogue}
+  completion_template: "{summary}"
+metadata:
+  notes: Dialogue summarization dataset using the published train/validation/test splits.

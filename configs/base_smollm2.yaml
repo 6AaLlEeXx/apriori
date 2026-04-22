@@ -1,0 +1,30 @@
+dataset_name: dolly
+task: generic
+base_model: mlx-community/SmolLM2-1.7B-Instruct
+output_root: results
+mlx_command: mlx_lm.lora
+test_after_train: true
+run_tags:
+  - smollm2
+  - lora
+evaluation:
+  name: generic
+  metrics:
+    - exact_match
+    - token_f1
+  primary_metric: token_f1
+mlx_args:
+  batch_size: 2
+  gradient_accumulation_steps: 4
+  learning_rate: 1.0e-5
+  seed: 42
+  mask_prompt: true
+  steps_per_report: 10
+  steps_per_eval: 100
+  val_batches: 25
+  save_every: 100
+  lora_parameters:
+    rank: 8
+    scale: 20.0
+    dropout: 0.0
+notes: Shared SmolLM2 base for separate LoRA adapters.
