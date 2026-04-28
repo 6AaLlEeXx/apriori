@@ -698,7 +698,7 @@ def build_summary(
         "dataset_name": config.dataset_name,
         "task": config.task,
         "base_model": config.base_model,
-        "data_dir": config.data_dir,
+        "data_dir": metadata.get("train_data_dir", config.data_dir),
         "adapter_dir": str(paths.adapter_dir),
         "run_tags": list(config.run_tags),
         "evaluation": config.evaluation,
@@ -707,6 +707,8 @@ def build_summary(
         "test_exit_code": test_exit_code,
         "metrics": summarize_metric_events(load_metric_events(paths.metrics_path)),
     }
+    if "sampling" in metadata:
+        summary["sampling"] = metadata["sampling"]
     if paths.eval_path.exists():
         summary["task_eval"] = load_json(paths.eval_path)
     return summary

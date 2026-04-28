@@ -103,7 +103,7 @@ def main() -> None:
             source_data_dir=config.data_dir,
             run_dir=paths.run_dir,
             sample_selector=args.sample_selector,
-            max_example=args.max_example,
+            max_example=args.max_examples,
         )
         metadata["sampling"] = sampling_meta
     metadata["train_data_dir"] = str(train_data_dir)

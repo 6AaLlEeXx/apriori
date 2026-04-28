@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import sys
 
+from lora.cli.run import main as run_cli_main
 from lora.eval import evaluate_predictions
 from lora.mlops import (
     LoraRunConfig,
@@ -204,6 +206,78 @@ def test_prepare_sampled_data_dir_default_selector_returns_all(tmp_path: Path) -
     ]
     assert sampled_rows == rows
     assert metadata["selected_train_examples"] == 2
+
+
+def test_run_cli_dry_run_applies_selector_max_examples(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    source_dir = tmp_path / "data"
+    source_dir.mkdir(parents=True)
+    rows = [{"id": i, "prompt": f"p{i}", "completion": f"c{i}"} for i in range(5)]
+    source_dir.joinpath("train.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n"
+    )
+    source_dir.joinpath("valid.jsonl").write_text(
+        json.dumps({"prompt": "v", "completion": "v"}) + "\n"
+    )
+    source_dir.joinpath("test.jsonl").write_text(
+        json.dumps({"prompt": "t", "completion": "t"}) + "\n"
+    )
+    selector_path = tmp_path / "selector.py"
+    selector_path.write_text(
+        "\n".join(
+            [
+                "def select_samples(rows, max_example=None):",
+                "    return rows[:max_example]",
+            ]
+        )
+        + "\n"
+    )
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "dataset_name: toy",
+                "task: generic",
+                f"data_dir: {source_dir}",
+                f"output_root: {tmp_path / 'results'}",
+            ]
+        )
+        + "\n"
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "mlx-lora-run",
+            "--config",
+            str(config_path),
+            "--run-name",
+            "selector-dry-run",
+            "--sample-selector",
+            str(selector_path),
+            "--max-examples",
+            "2",
+            "--dry-run",
+        ],
+    )
+
+    run_cli_main()
+
+    run_dir = tmp_path / "results" / "runs" / "selector-dry-run"
+    sampled_rows = [
+        json.loads(line)
+        for line in run_dir.joinpath("data", "train.jsonl").read_text().splitlines()
+    ]
+    metadata = json.loads(run_dir.joinpath("metadata.json").read_text())
+    summary = json.loads(run_dir.joinpath("summary.json").read_text())
+    assert [row["id"] for row in sampled_rows] == [0, 1]
+    assert metadata["sampling"]["max_example"] == 2
+    assert metadata["sampling"]["selected_train_examples"] == 2
+    assert summary["data_dir"] == metadata["train_data_dir"]
+    assert summary["sampling"] == metadata["sampling"]
 
 
 def test_parse_mlx_log_line_handles_train_val_and_test() -> None:

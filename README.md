@@ -86,7 +86,7 @@ def select_samples(rows, max_example=None):
 
 - `rows` is the full parsed `train.jsonl` list of JSON objects.
 - return value must be an iterable of selected row objects.
-- `--max-example` is optional and passed through as `max_example`.
+- `--max-examples` is optional and passed through as `max_example`.
 - if omitted, training uses the full selector output.
 
 The default selector (`selectors/default_selector.py`) returns rows unchanged.
@@ -176,4 +176,3 @@ Reports are written to `reports/`.
 ```bash
 uv run pytest
 ```
-
