@@ -16,6 +16,7 @@ from lora.mlops import (
     build_test_command,
     build_train_command,
     load_lora_run_config,
+    prepare_sampled_data_dir,
     prepare_run,
     save_lora_run_config,
     run_command_with_logging,
@@ -58,6 +59,20 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip the post-train `mlx_lm.lora --test` pass.",
     )
+    parser.add_argument(
+        "--sample-selector",
+        default=None,
+        help=(
+            "Optional path to a Python selector module defining "
+            "`select_samples(rows, max_example=None)`."
+        ),
+    )
+    parser.add_argument(
+        "--max-examples",
+        type=int,
+        default=None,
+        help="Optional max-examples value passed to `select_samples`.",
+    )
     return parser.parse_args()
 
 
@@ -82,7 +97,19 @@ def main() -> None:
         build_mlx_config_payload(config),
     )
 
-    train_command = build_train_command(config, paths)
+    train_data_dir = config.data_dir
+    if args.sample_selector:
+        train_data_dir, sampling_meta = prepare_sampled_data_dir(
+            source_data_dir=config.data_dir,
+            run_dir=paths.run_dir,
+            sample_selector=args.sample_selector,
+            max_example=args.max_example,
+        )
+        metadata["sampling"] = sampling_meta
+    metadata["train_data_dir"] = str(train_data_dir)
+    write_metadata(paths.metadata_path, metadata)
+
+    train_command = build_train_command(config, paths, data_dir=train_data_dir)
     write_command(paths.command_path, train_command)
     write_summary(
         paths.summary_path,
@@ -124,7 +151,7 @@ def main() -> None:
     test_exit_code: int | None = None
 
     if train_exit_code == 0 and config.test_after_train and not args.skip_test:
-        test_command = build_test_command(config, paths)
+        test_command = build_test_command(config, paths, data_dir=train_data_dir)
         test_exit_code = run_command_with_logging(
             command=test_command,
             log_path=paths.test_log,

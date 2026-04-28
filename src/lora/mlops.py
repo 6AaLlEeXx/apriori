@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+import importlib.util
 from pathlib import Path
 from typing import Any
 import json
 import re
 import shlex
+import shutil
 import subprocess
 
 from lora.paths import (
@@ -386,14 +388,23 @@ def write_mlx_runtime_config(path: str | Path, payload: dict[str, Any]) -> None:
     path.write_text(yaml.safe_dump(payload, sort_keys=False))
 
 
-def build_train_command(config: LoraRunConfig, paths: RunPaths) -> list[str]:
+def build_train_command(
+    config: LoraRunConfig,
+    paths: RunPaths,
+    data_dir: str | Path | None = None,
+) -> list[str]:
+    resolved_data_dir = (
+        resolve_project_path(data_dir)
+        if data_dir is not None
+        else resolve_project_path(config.data_dir)
+    )
     command = [
         config.mlx_command,
         "--train",
         "--model",
         config.base_model,
         "--data",
-        str(resolve_project_path(config.data_dir)),
+        str(resolved_data_dir),
         "--adapter-path",
         str(paths.adapter_dir),
     ]
@@ -419,14 +430,23 @@ def build_train_command(config: LoraRunConfig, paths: RunPaths) -> list[str]:
     return command
 
 
-def build_test_command(config: LoraRunConfig, paths: RunPaths) -> list[str]:
+def build_test_command(
+    config: LoraRunConfig,
+    paths: RunPaths,
+    data_dir: str | Path | None = None,
+) -> list[str]:
+    resolved_data_dir = (
+        resolve_project_path(data_dir)
+        if data_dir is not None
+        else resolve_project_path(config.data_dir)
+    )
     return [
         config.mlx_command,
         "--test",
         "--model",
         config.base_model,
         "--data",
-        str(resolve_project_path(config.data_dir)),
+        str(resolved_data_dir),
         "--adapter-path",
         str(paths.adapter_dir),
     ]
@@ -435,6 +455,86 @@ def build_test_command(config: LoraRunConfig, paths: RunPaths) -> list[str]:
 def write_command(path: str | Path, command: list[str]) -> None:
     path = Path(path)
     path.write_text(shlex.join(command) + "\n")
+
+
+def load_jsonl_records(path: str | Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    with Path(path).open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            text = line.strip()
+            if not text:
+                continue
+            payload = json.loads(text)
+            if not isinstance(payload, dict):
+                raise ValueError(
+                    f"JSONL row must be an object: {path}:{line_number}"
+                )
+            rows.append(payload)
+    return rows
+
+
+def write_jsonl_records(path: str | Path, rows: list[dict[str, Any]]) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ValueError("Selector output rows must be JSON objects.")
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def _load_sample_selector(selector_path: str | Path) -> Any:
+    selector_path = resolve_existing_project_path(selector_path)
+    module_name = f"lora_sample_selector_{selector_path.stem}"
+    spec = importlib.util.spec_from_file_location(module_name, selector_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to import selector from: {selector_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if not hasattr(module, "select_samples"):
+        raise ValueError(
+            f"Selector file must define `select_samples`: {selector_path}"
+        )
+    return module.select_samples
+
+
+def prepare_sampled_data_dir(
+    *,
+    source_data_dir: str | Path,
+    run_dir: str | Path,
+    sample_selector: str | Path,
+    max_example: int | None = None,
+) -> tuple[Path, dict[str, Any]]:
+    source_data_dir = resolve_project_path(source_data_dir)
+    run_dir = Path(run_dir)
+    sampled_data_dir = run_dir / "data"
+    sampled_data_dir.mkdir(parents=True, exist_ok=True)
+
+    train_path = source_data_dir / "train.jsonl"
+    if not train_path.exists():
+        raise FileNotFoundError(f"Training split not found: {train_path}")
+    for split in ("valid", "test"):
+        split_path = source_data_dir / f"{split}.jsonl"
+        if split_path.exists():
+            shutil.copy2(split_path, sampled_data_dir / split_path.name)
+
+    rows = load_jsonl_records(train_path)
+    selector = _load_sample_selector(sample_selector)
+    selected_rows = selector(rows, max_example=max_example)
+    if selected_rows is None:
+        raise ValueError("Selector returned None; expected iterable of rows.")
+    selected_rows = list(selected_rows)
+    write_jsonl_records(sampled_data_dir / "train.jsonl", selected_rows)
+
+    selector_path = resolve_existing_project_path(sample_selector)
+    metadata = {
+        "selector_path": str(selector_path),
+        "max_example": max_example,
+        "original_train_examples": len(rows),
+        "selected_train_examples": len(selected_rows),
+        "sampled_data_dir": str(sampled_data_dir),
+    }
+    return sampled_data_dir, metadata
 
 
 def parse_mlx_log_line(line: str) -> dict[str, Any] | None:

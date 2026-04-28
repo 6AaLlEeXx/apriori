@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 from lora.eval import evaluate_predictions
 from lora.mlops import (
@@ -9,7 +10,9 @@ from lora.mlops import (
     build_mlx_config_payload,
     build_run_name,
     build_train_command,
+    build_test_command,
     load_lora_run_config,
+    prepare_sampled_data_dir,
     parse_mlx_log_line,
     render_markdown_report,
     summarize_metric_events,
@@ -111,6 +114,96 @@ def test_build_train_command_maps_mlx_args_to_cli_flags() -> None:
     assert payload["lora_parameters"]["rank"] == 8
     assert payload["lora_parameters"]["scale"] == 2.0
     assert "alpha" not in payload["lora_parameters"]
+
+
+def test_build_train_and_test_command_support_data_dir_override() -> None:
+    config = LoraRunConfig(dataset_name="dolly", data_dir="data/dolly")
+    paths = RunPaths(
+        run_name="run-1",
+        run_dir=Path("results/runs/run-1"),
+        adapter_dir=Path("results/adapters/run-1"),
+        logs_dir=Path("results/runs/run-1/logs"),
+        train_log=Path("results/runs/run-1/logs/train.log"),
+        test_log=Path("results/runs/run-1/logs/test.log"),
+        metrics_path=Path("results/runs/run-1/metrics.jsonl"),
+        metadata_path=Path("results/runs/run-1/metadata.json"),
+        resolved_config_path=Path("results/runs/run-1/config.resolved.yaml"),
+        summary_path=Path("results/runs/run-1/summary.md"),
+        eval_path=Path("results/runs/run-1/eval.json"),
+        command_path=Path("results/runs/run-1/command.txt"),
+        mlx_config_path=Path("results/runs/run-1/mlx_config.yaml"),
+    )
+
+    train_command = build_train_command(config, paths, data_dir="data/dolly_subset")
+    test_command = build_test_command(config, paths, data_dir="data/dolly_subset")
+    assert str(Path("data/dolly_subset").resolve()) in train_command
+    assert str(Path("data/dolly_subset").resolve()) in test_command
+
+
+def test_prepare_sampled_data_dir_applies_selector(tmp_path: Path) -> None:
+    source_dir = tmp_path / "data"
+    source_dir.mkdir(parents=True)
+    train_rows = [{"id": i, "prompt": f"p{i}", "completion": f"c{i}"} for i in range(6)]
+    source_dir.joinpath("train.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in train_rows) + "\n"
+    )
+    source_dir.joinpath("valid.jsonl").write_text(
+        json.dumps({"prompt": "v", "completion": "v"}) + "\n"
+    )
+    source_dir.joinpath("test.jsonl").write_text(
+        json.dumps({"prompt": "t", "completion": "t"}) + "\n"
+    )
+    selector_path = tmp_path / "selector.py"
+    selector_path.write_text(
+        "\n".join(
+            [
+                "def select_samples(rows, max_example=None):",
+                "    selected = [row for row in rows if row['id'] % 2 == 0]",
+                "    if max_example is None:",
+                "        return selected",
+                "    return selected[:max_example]",
+            ]
+        )
+        + "\n"
+    )
+
+    sampled_dir, metadata = prepare_sampled_data_dir(
+        source_data_dir=source_dir,
+        run_dir=tmp_path / "run",
+        sample_selector=selector_path,
+        max_example=2,
+    )
+
+    sampled_rows = [
+        json.loads(line) for line in sampled_dir.joinpath("train.jsonl").read_text().splitlines()
+    ]
+    assert [row["id"] for row in sampled_rows] == [0, 2]
+    assert sampled_dir.joinpath("valid.jsonl").exists()
+    assert sampled_dir.joinpath("test.jsonl").exists()
+    assert metadata["original_train_examples"] == 6
+    assert metadata["selected_train_examples"] == 2
+    assert metadata["max_example"] == 2
+
+
+def test_prepare_sampled_data_dir_default_selector_returns_all(tmp_path: Path) -> None:
+    source_dir = tmp_path / "data"
+    source_dir.mkdir(parents=True)
+    rows = [{"prompt": "a", "completion": "b"}, {"prompt": "c", "completion": "d"}]
+    source_dir.joinpath("train.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n"
+    )
+
+    sampled_dir, metadata = prepare_sampled_data_dir(
+        source_data_dir=source_dir,
+        run_dir=tmp_path / "run",
+        sample_selector="selectors/default_selector.py",
+        max_example=1,
+    )
+    sampled_rows = [
+        json.loads(line) for line in sampled_dir.joinpath("train.jsonl").read_text().splitlines()
+    ]
+    assert sampled_rows == rows
+    assert metadata["selected_train_examples"] == 2
 
 
 def test_parse_mlx_log_line_handles_train_val_and_test() -> None:

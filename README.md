@@ -66,6 +66,34 @@ uv run mlx-lora-run \
   --base-model mlx-community/Qwen2.5-1.5B-Instruct-4bit
 ```
 
+Run-time subsampling (keep full `data/<dataset>/train.jsonl`, choose subset per run):
+
+```bash
+uv run mlx-lora-run \
+  --run-name some-name \
+  --config configs/dolly.yaml \
+  --base-model mlx-community/Qwen3.5-9B-Instruct-4bit \
+  --sample-selector selectors/default_selector.py \
+  --max-examples 2000
+```
+
+`--sample-selector` must point to a Python module defining:
+
+```python
+def select_samples(rows, max_example=None):
+    ...
+```
+
+- `rows` is the full parsed `train.jsonl` list of JSON objects.
+- return value must be an iterable of selected row objects.
+- `--max-example` is optional and passed through as `max_example`.
+- if omitted, training uses the full selector output.
+
+The default selector (`selectors/default_selector.py`) returns rows unchanged.
+When a selector is used, the run writes a materialized sampled split under
+`results/runs/<run_name>/data/train.jsonl` and copies `valid.jsonl`/`test.jsonl`
+for the same run.
+
 The run writes:
 
 ```text
@@ -148,3 +176,4 @@ Reports are written to `reports/`.
 ```bash
 uv run pytest
 ```
+
