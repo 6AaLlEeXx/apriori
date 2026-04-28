@@ -1,0 +1,27 @@
+dataset_name: evol_instruct_code
+source_dataset: nickrosh/Evol-Instruct-Code-80k-v1
+output_dir: data/evol_instruct_code
+source:
+  type: hf
+  path: nickrosh/Evol-Instruct-Code-80k-v1
+  splits:
+    train: train
+  max_examples: 30000
+split:
+  strategy: ratios
+  seed: 42
+  ratios:
+    train: 0.9
+    valid: 0.05
+    test: 0.05
+mapping:
+  type: template
+  prompt_template: |-
+    {instruction}
+  completion_template: "{output}"
+filters:
+  max_prompt_chars: 4000
+  max_completion_chars: 4000
+metadata:
+  task: code
+  notes: Evol-Instruct-Code-80k — evolved coding instructions (Evol-Instruct method). Subsetted to 30k by default.

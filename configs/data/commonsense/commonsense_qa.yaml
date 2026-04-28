@@ -1,0 +1,32 @@
+dataset_name: commonsense_qa
+source_dataset: tau/commonsense_qa
+output_dir: data/commonsense_qa
+source:
+  type: hf
+  path: tau/commonsense_qa
+  splits:
+    train: train
+    valid: validation
+    test: test
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  computed_fields:
+    options_block:
+      format_choices:
+        text_field: choices.text
+        label_field: choices.label
+  prompt_template: |-
+    Answer the commonsense multiple-choice question. Reply with only the letter.
+
+    Question:
+    {question}
+
+    Options:
+    {options_block}
+  completion_template: "{answerKey}"
+metadata:
+  task: mcq_letter
+  notes: CommonsenseQA — 12.1k commonsense MCQs with 5 options each. Test labels are hidden.

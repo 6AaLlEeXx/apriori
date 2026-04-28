@@ -22,12 +22,28 @@ def load_pair_split(path: str | Path, split: str) -> list[PairRecord]:
             if not line:
                 continue
             payload = json.loads(line)
+            if not isinstance(payload, dict):
+                raise ValueError(
+                    f"Kernel data row must be an object: {path}:{index + 1}"
+                )
+            if "prompt" not in payload:
+                raise ValueError(
+                    f"Kernel data row is missing `prompt`: {path}:{index + 1}"
+                )
+            if "completion" not in payload:
+                raise ValueError(
+                    f"Kernel data row is missing `completion`: {path}:{index + 1}"
+                )
             records.append(
                 PairRecord(
                     pair_id=f"{split}-{index:06d}",
                     split=split,
-                    prompt=str(payload["prompt"]),
-                    completion=str(payload["completion"]),
+                    prompt="" if payload["prompt"] is None else str(payload["prompt"]),
+                    completion=(
+                        ""
+                        if payload["completion"] is None
+                        else str(payload["completion"])
+                    ),
                 )
             )
     return records

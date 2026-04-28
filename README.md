@@ -42,6 +42,8 @@ uv run mlx-lora-prepare-data \
 
 To add a normal supervised dataset, add one YAML file under `configs/data/` with `source`, `split`, `mapping`, and optional `filters`. You should only need Python for cases that cannot be represented as row templates or source composition.
 
+**50 ready-to-use dataset recipes** (instruction, math, commonsense, QA, code, SQL, summarization, classification, medical, multilingual, translation, tools) ship under `configs/data/<category>/`. See [docs/datasets.md](docs/datasets.md) for the full catalog, schema reference, and mapping cookbook.
+
 ## Train Adapters
 
 Preview a run:

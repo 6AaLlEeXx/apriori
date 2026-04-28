@@ -1,0 +1,29 @@
+dataset_name: pubmed_summ
+source_dataset: ccdv/pubmed-summarization
+output_dir: data/pubmed_summ
+source:
+  type: hf
+  path: ccdv/pubmed-summarization
+  name: section
+  splits:
+    train: train
+    valid: validation
+    test: test
+  max_examples: 30000
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  prompt_template: |-
+    Write a concise abstract for the following biomedical article body.
+
+    Article:
+    {article}
+  completion_template: "{abstract}"
+filters:
+  max_prompt_chars: 16000
+  max_completion_chars: 2000
+metadata:
+  task: rouge
+  notes: PubMed — long biomedical article to abstract summarization. Long-input domain task; subsetted to 30k by default.

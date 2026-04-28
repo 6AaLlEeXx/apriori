@@ -1,0 +1,28 @@
+dataset_name: mathinstruct
+source_dataset: TIGER-Lab/MathInstruct
+output_dir: data/mathinstruct
+source:
+  type: hf
+  path: TIGER-Lab/MathInstruct
+  split: train
+  max_examples: 50000
+split:
+  strategy: ratios
+  seed: 42
+  valid_ratio: 0.02
+  test_ratio: 0.02
+mapping:
+  type: template
+  prompt_template: |-
+    Solve the following math problem. Show your reasoning.
+
+    Problem:
+    {instruction}
+  completion_template: "{output}"
+filters:
+  max_prompt_chars: 3000
+  max_completion_chars: 4000
+  max_total_chars: 6000
+metadata:
+  task: gsm8k
+  notes: 262k mixed CoT + program-of-thought math instructions; subsetted to 50k by default.

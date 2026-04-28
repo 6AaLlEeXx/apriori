@@ -1,0 +1,28 @@
+dataset_name: mbpp
+source_dataset: google-research-datasets/mbpp
+output_dir: data/mbpp
+source:
+  type: hf
+  path: google-research-datasets/mbpp
+  name: sanitized
+  splits:
+    train: train
+    valid: validation
+    test: test
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  prompt_template: |-
+    Write a Python function that solves the problem. Output only the code.
+
+    Problem:
+    {prompt}
+  completion_template: "{code}"
+filters:
+  max_prompt_chars: 2000
+  max_completion_chars: 2000
+metadata:
+  task: code
+  notes: MBPP (sanitized) — ~974 mostly-basic Python programming problems with tests. Core code-gen evaluation benchmark.

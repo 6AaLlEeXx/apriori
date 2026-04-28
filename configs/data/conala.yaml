@@ -26,4 +26,5 @@ mapping:
     {task}
   completion_template: "{snippet}"
 metadata:
+  task: code
   notes: Uses computed fields to prefer rewritten_intent when present.

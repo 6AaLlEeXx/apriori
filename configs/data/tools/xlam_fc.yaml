@@ -1,0 +1,32 @@
+dataset_name: xlam_fc
+source_dataset: Salesforce/xlam-function-calling-60k
+output_dir: data/xlam_fc
+source:
+  type: hf
+  path: Salesforce/xlam-function-calling-60k
+  splits:
+    train: train
+split:
+  strategy: ratios
+  seed: 42
+  ratios:
+    train: 0.9
+    valid: 0.05
+    test: 0.05
+mapping:
+  type: template
+  prompt_template: |-
+    You are a function-calling assistant. Given the user query and the available tools, reply with a JSON array of tool calls.
+
+    Available tools:
+    {tools}
+
+    Query:
+    {query}
+  completion_template: "{answers}"
+filters:
+  max_prompt_chars: 6000
+  max_completion_chars: 2000
+metadata:
+  task: tool_use
+  notes: xLAM Function-Calling 60k — query → JSON tool calls. Models structured tool-use behavior.

@@ -1,0 +1,31 @@
+dataset_name: imdb
+source_dataset: stanfordnlp/imdb
+output_dir: data/imdb
+source:
+  type: hf
+  path: stanfordnlp/imdb
+  splits:
+    train: train
+    test: test
+split:
+  strategy: train_valid_existing_test
+  seed: 42
+  valid_ratio: 0.05
+mapping:
+  type: template
+  computed_fields:
+    answer_text:
+      lookup_index:
+        index: label
+        labels: [negative, positive]
+  prompt_template: |-
+    Classify the sentiment of the movie review as "positive" or "negative". Reply with only the label.
+
+    Review:
+    {text}
+  completion_template: "{answer_text}"
+filters:
+  max_prompt_chars: 6000
+metadata:
+  task: exact_match
+  notes: IMDb — 25k/25k binary sentiment classification on movie reviews.

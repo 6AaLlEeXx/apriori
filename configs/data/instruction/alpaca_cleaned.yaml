@@ -1,0 +1,27 @@
+dataset_name: alpaca_cleaned
+source_dataset: yahma/alpaca-cleaned
+output_dir: data/alpaca_cleaned
+source:
+  type: hf
+  path: yahma/alpaca-cleaned
+  split: train
+split:
+  strategy: ratios
+  seed: 42
+  valid_ratio: 0.05
+  test_ratio: 0.05
+mapping:
+  type: template
+  prompt_parts:
+    - Write a helpful response to the following instruction.
+    - "Instruction:\n{instruction}"
+    - template: "Input:\n{input}"
+      when_field: input
+  completion_template: "{output}"
+filters:
+  max_prompt_chars: 4000
+  max_completion_chars: 3000
+  max_total_chars: 6000
+metadata:
+  task: generic
+  notes: Community-cleaned Alpaca (deduped, hallucinations removed, formatting fixed).

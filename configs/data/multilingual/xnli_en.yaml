@@ -1,0 +1,36 @@
+dataset_name: xnli_en
+source_dataset: facebook/xnli
+output_dir: data/xnli_en
+source:
+  type: hf
+  path: facebook/xnli
+  name: en
+  splits:
+    train: train
+    valid: validation
+    test: test
+  max_examples: 50000
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  computed_fields:
+    answer_text:
+      lookup_index:
+        index: label
+        labels: [entailment, neutral, contradiction]
+  prompt_template: |-
+    Given a premise and hypothesis, decide the relationship as one of: entailment, neutral, contradiction. Reply with only the label.
+
+    Premise:
+    {premise}
+
+    Hypothesis:
+    {hypothesis}
+  completion_template: "{answer_text}"
+filters:
+  max_prompt_chars: 2500
+metadata:
+  task: exact_match
+  notes: XNLI English subset — 3-way NLI classification. Swap `name:` to run other languages (fr, de, es, zh, ...).

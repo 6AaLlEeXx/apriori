@@ -1,0 +1,33 @@
+dataset_name: trivia_qa
+source_dataset: mandarjoshi/trivia_qa
+output_dir: data/trivia_qa
+source:
+  type: hf
+  path: mandarjoshi/trivia_qa
+  name: rc.nocontext
+  splits:
+    train: train
+    valid: validation
+    test: test
+  max_examples: 50000
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  computed_fields:
+    answer_text:
+      first_non_empty:
+        - answer.value
+  prompt_template: |-
+    Answer the trivia question concisely.
+
+    Question:
+    {question}
+  completion_template: "{answer_text}"
+filters:
+  max_prompt_chars: 1500
+  max_completion_chars: 200
+metadata:
+  task: exact_match
+  notes: TriviaQA (no-context reading-comprehension variant); 80k subsetted to 50k by default.

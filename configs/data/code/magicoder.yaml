@@ -1,0 +1,27 @@
+dataset_name: magicoder
+source_dataset: ise-uiuc/Magicoder-OSS-Instruct-75K
+output_dir: data/magicoder
+source:
+  type: hf
+  path: ise-uiuc/Magicoder-OSS-Instruct-75K
+  splits:
+    train: train
+  max_examples: 30000
+split:
+  strategy: ratios
+  seed: 42
+  ratios:
+    train: 0.9
+    valid: 0.05
+    test: 0.05
+mapping:
+  type: template
+  prompt_template: |-
+    {problem}
+  completion_template: "{solution}"
+filters:
+  max_prompt_chars: 4000
+  max_completion_chars: 4000
+metadata:
+  task: code
+  notes: Magicoder OSS-Instruct 75K — code instructions seeded from real open-source snippets. Subsetted to 30k by default.

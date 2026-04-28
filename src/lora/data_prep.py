@@ -42,12 +42,14 @@ SOURCE_KEYS = {
     "data_files",
     "revision",
     "streaming",
+    "trust_remote_code",
 }
 SPLIT_KEYS = {
     "strategy",
     "seed",
     "valid_ratio",
     "test_ratio",
+    "ratios",
     "max_examples_per_split",
 }
 MAPPING_KEYS = {
@@ -58,6 +60,10 @@ MAPPING_KEYS = {
     "prompt_joiner",
     "completion_template",
 }
+COMPUTED_FIELD_OPS = {"first_non_empty", "format_choices", "lookup_index"}
+FORMAT_CHOICES_KEYS = {"text_field", "label_field", "item_format", "joiner"}
+LOOKUP_INDEX_KEYS = {"list", "labels", "index", "as_letter"}
+_ABC_LABELS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 FILTER_KEYS = {
     "max_prompt_chars",
     "max_completion_chars",
@@ -450,22 +456,73 @@ def _validate_mapping_config(mapping: dict[str, Any]) -> None:
     computed_fields = mapping.get("computed_fields") or {}
     computed_fields = _expect_mapping(computed_fields, "mapping.computed_fields")
     for name, spec in computed_fields.items():
-        spec = _expect_mapping(spec, f"mapping.computed_fields.{name}")
-        _expect_unknown_keys(
-            spec,
-            {"first_non_empty"},
-            f"mapping.computed_fields.{name}",
+        _validate_computed_field(name, spec)
+
+
+def _validate_computed_field(name: str, spec: Any) -> None:
+    spec = _expect_mapping(spec, f"mapping.computed_fields.{name}")
+    if len(spec) != 1:
+        raise ValueError(
+            f"`mapping.computed_fields.{name}` must specify exactly one operation."
         )
-        sources = spec.get("first_non_empty")
-        if not isinstance(sources, list) or not sources:
+    ((op_name, op_spec),) = spec.items()
+    if op_name not in COMPUTED_FIELD_OPS:
+        raise ValueError(
+            f"Unknown computed_fields op `{op_name}` in "
+            f"`mapping.computed_fields.{name}`. "
+            f"Supported: {sorted(COMPUTED_FIELD_OPS)}"
+        )
+    if op_name == "first_non_empty":
+        if not isinstance(op_spec, list) or not op_spec:
             raise ValueError(
                 f"`mapping.computed_fields.{name}.first_non_empty` "
                 "must be a non-empty list."
             )
-        if not all(isinstance(source, str) for source in sources):
+        if not all(isinstance(source, str) for source in op_spec):
             raise ValueError(
                 f"`mapping.computed_fields.{name}.first_non_empty` "
                 "must contain only strings."
+            )
+    elif op_name == "format_choices":
+        op_spec = _expect_mapping(
+            op_spec, f"mapping.computed_fields.{name}.format_choices"
+        )
+        _expect_unknown_keys(
+            op_spec,
+            FORMAT_CHOICES_KEYS,
+            f"mapping.computed_fields.{name}.format_choices",
+        )
+        text_field = op_spec.get("text_field")
+        if isinstance(text_field, list):
+            if not text_field or not all(isinstance(f, str) for f in text_field):
+                raise ValueError(
+                    f"`mapping.computed_fields.{name}.format_choices.text_field` "
+                    "as a list must be a non-empty list of dotted-path strings."
+                )
+        elif not isinstance(text_field, str):
+            raise ValueError(
+                f"`mapping.computed_fields.{name}.format_choices.text_field` "
+                "must be a dotted-path string or a list of dotted-path strings."
+            )
+    elif op_name == "lookup_index":
+        op_spec = _expect_mapping(
+            op_spec, f"mapping.computed_fields.{name}.lookup_index"
+        )
+        _expect_unknown_keys(
+            op_spec,
+            LOOKUP_INDEX_KEYS,
+            f"mapping.computed_fields.{name}.lookup_index",
+        )
+        if not isinstance(op_spec.get("index"), str):
+            raise ValueError(
+                f"`mapping.computed_fields.{name}.lookup_index.index` is required."
+            )
+        has_list = isinstance(op_spec.get("list"), str)
+        has_labels = isinstance(op_spec.get("labels"), list)
+        if not op_spec.get("as_letter", False) and not (has_list or has_labels):
+            raise ValueError(
+                f"`mapping.computed_fields.{name}.lookup_index` requires one of "
+                "`list`, `labels`, or `as_letter: true`."
             )
 
 
@@ -512,6 +569,11 @@ def validate_data_prep_config(config: dict[str, Any]) -> None:
     for key in ("valid_ratio", "test_ratio"):
         if key in split_config:
             float(split_config[key])
+    if "ratios" in split_config:
+        ratios = _expect_mapping(split_config["ratios"], "split.ratios")
+        for key in ("train", "valid", "test"):
+            if key in ratios:
+                float(ratios[key])
     if "max_examples_per_split" in split_config:
         _expect_mapping(
             split_config["max_examples_per_split"],
@@ -554,17 +616,107 @@ def _should_render_part(part: dict[str, Any], row: dict[str, str]) -> bool:
     return True
 
 
+def _is_empty(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    if isinstance(value, (list, dict, tuple, set)):
+        return len(value) == 0
+    return False
+
+
+def _resolve_path(value: Any, path: str) -> Any:
+    current = value
+    for segment in path.split("."):
+        if isinstance(current, dict):
+            current = current.get(segment)
+        elif isinstance(current, list):
+            try:
+                current = current[int(segment)]
+            except (ValueError, IndexError):
+                return None
+        else:
+            return None
+    return current
+
+
+def _compute_first_non_empty(example: dict[str, Any], sources: list[str]) -> Any:
+    for source in sources:
+        value = _resolve_path(example, source)
+        if not _is_empty(value):
+            return value.strip() if isinstance(value, str) else value
+    return ""
+
+
+def _compute_format_choices(example: dict[str, Any], spec: dict[str, Any]) -> str:
+    text_field = spec["text_field"]
+    if isinstance(text_field, list):
+        texts = [_resolve_path(example, path) for path in text_field]
+    else:
+        texts = _resolve_path(example, text_field)
+    if not isinstance(texts, list):
+        return ""
+    label_field = spec.get("label_field")
+    labels: list[Any] | None = None
+    if label_field:
+        resolved = _resolve_path(example, label_field)
+        if isinstance(resolved, list):
+            labels = resolved
+    if labels is None or len(labels) != len(texts):
+        labels = [_ABC_LABELS[i % len(_ABC_LABELS)] for i in range(len(texts))]
+    item_format = str(spec.get("item_format", "{label}. {text}"))
+    joiner = str(spec.get("joiner", "\n"))
+    return joiner.join(
+        item_format.format(label=str(label), text=_normalize_template_value(text))
+        for label, text in zip(labels, texts)
+    )
+
+
+def _compute_lookup_index(example: dict[str, Any], spec: dict[str, Any]) -> str:
+    raw_index = _resolve_path(example, spec["index"])
+    try:
+        index = int(raw_index)
+    except (TypeError, ValueError):
+        if isinstance(raw_index, str) and len(raw_index) == 1 and raw_index.isalpha():
+            index = _ABC_LABELS.index(raw_index.upper())
+        else:
+            return ""
+    if spec.get("as_letter", False):
+        if 0 <= index < len(_ABC_LABELS):
+            return _ABC_LABELS[index]
+        return ""
+    inline_labels = spec.get("labels")
+    if isinstance(inline_labels, list):
+        if 0 <= index < len(inline_labels):
+            return _normalize_template_value(inline_labels[index])
+        return ""
+    list_field = spec.get("list")
+    if not list_field:
+        return ""
+    items = _resolve_path(example, list_field)
+    if isinstance(items, list) and 0 <= index < len(items):
+        return _normalize_template_value(items[index])
+    return ""
+
+
 def _apply_computed_fields(
+    example: dict[str, Any],
     row: dict[str, str],
     computed_fields: dict[str, Any],
 ) -> dict[str, str]:
     row = dict(row)
     for name, spec in computed_fields.items():
-        sources = spec["first_non_empty"]
-        row[str(name)] = next(
-            (row.get(source, "") for source in sources if row.get(source, "")),
-            "",
-        )
+        ((op_name, op_spec),) = spec.items()
+        if op_name == "first_non_empty":
+            value = _compute_first_non_empty(example, op_spec)
+        elif op_name == "format_choices":
+            value = _compute_format_choices(example, op_spec)
+        elif op_name == "lookup_index":
+            value = _compute_lookup_index(example, op_spec)
+        else:  # pragma: no cover - guarded by validation
+            raise ValueError(f"Unknown computed_fields op `{op_name}`.")
+        row[str(name)] = _normalize_template_value(value)
     return row
 
 
@@ -583,7 +735,7 @@ def build_record_formatter(mapping_config: dict[str, Any]) -> RecordFormatter:
         row = {
             str(key): _normalize_template_value(value) for key, value in example.items()
         }
-        row = _apply_computed_fields(row, computed_fields)
+        row = _apply_computed_fields(example, row, computed_fields)
         if isinstance(prompt_template, str):
             prompt = _render_template(prompt_template, row, "prompt_template")
         else:
@@ -664,7 +816,7 @@ def _load_hf_source(source: dict[str, Any]) -> Any:
     if name is not None:
         args.append(str(name))
     kwargs: dict[str, Any] = {}
-    for key in ("split", "data_files", "revision", "streaming"):
+    for key in ("split", "data_files", "revision", "streaming", "trust_remote_code"):
         if key in source:
             kwargs[key] = source[key]
     return load_dataset(*args, **kwargs)
@@ -770,6 +922,15 @@ def build_dataset_splits(dataset: Any, config: dict[str, Any]) -> dict[str, Any]
     seed = int(split_config.get("seed", 42))
     max_examples = source.get("max_examples")
 
+    def split_ratio(key: str, default: float) -> float:
+        ratios = split_config.get("ratios") or {}
+        legacy_key = f"{key}_ratio"
+        if legacy_key in split_config:
+            return float(split_config[legacy_key])
+        if isinstance(ratios, dict) and key in ratios:
+            return float(ratios[key])
+        return default
+
     if strategy in {"ratios", "train_valid_test"}:
         if _is_dataset_mapping(dataset):
             raise ValueError("Ratio splitting requires a single dataset.")
@@ -777,8 +938,8 @@ def build_dataset_splits(dataset: Any, config: dict[str, Any]) -> dict[str, Any]
         train, valid, test = split_train_valid_test(
             dataset,
             seed=seed,
-            valid_ratio=float(split_config.get("valid_ratio", 0.05)),
-            test_ratio=float(split_config.get("test_ratio", 0.05)),
+            valid_ratio=split_ratio("valid", 0.05),
+            test_ratio=split_ratio("test", 0.05),
         )
         splits = {"train": train, "valid": valid, "test": test}
     elif strategy == "train_valid":
@@ -788,7 +949,7 @@ def build_dataset_splits(dataset: Any, config: dict[str, Any]) -> dict[str, Any]
         train, valid = split_train_and_valid(
             dataset,
             seed=seed,
-            valid_ratio=float(split_config.get("valid_ratio", 0.1)),
+            valid_ratio=split_ratio("valid", 0.1),
         )
         splits = {"train": train, "valid": valid}
     elif strategy == "existing":
@@ -826,7 +987,7 @@ def build_dataset_splits(dataset: Any, config: dict[str, Any]) -> dict[str, Any]
         train, valid = split_train_and_valid(
             train_source,
             seed=seed,
-            valid_ratio=float(split_config.get("valid_ratio", 0.1)),
+            valid_ratio=split_ratio("valid", 0.1),
         )
         splits = {
             "train": train,

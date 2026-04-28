@@ -1,0 +1,36 @@
+dataset_name: opus100_en_de
+source_dataset: Helsinki-NLP/opus-100
+output_dir: data/opus100_en_de
+source:
+  type: hf
+  path: Helsinki-NLP/opus-100
+  name: de-en
+  splits:
+    train: train
+    valid: validation
+    test: test
+  max_examples: 50000
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  computed_fields:
+    source_text:
+      first_non_empty:
+        - translation.en
+    target_text:
+      first_non_empty:
+        - translation.de
+  prompt_template: |-
+    Translate the following English text to German. Reply with only the German translation.
+
+    English:
+    {source_text}
+  completion_template: "{target_text}"
+filters:
+  max_prompt_chars: 3000
+  max_completion_chars: 3000
+metadata:
+  task: bleu
+  notes: OPUS-100 EN→DE subset — 1M parallel sentences subsetted to 50k. Swap the `name:` pair and source/target paths for other directions.

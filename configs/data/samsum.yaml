@@ -20,4 +20,5 @@ mapping:
     {dialogue}
   completion_template: "{summary}"
 metadata:
+  task: rouge
   notes: Dialogue summarization dataset using the published train/validation/test splits.

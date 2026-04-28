@@ -1,0 +1,38 @@
+dataset_name: logiqa
+source_dataset: lucasmccabe/logiqa
+output_dir: data/logiqa
+source:
+  type: hf
+  path: lucasmccabe/logiqa
+  splits:
+    train: train
+    valid: validation
+    test: test
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  computed_fields:
+    options_block:
+      format_choices:
+        text_field: options
+    answer_letter:
+      lookup_index:
+        index: correct_option
+        as_letter: true
+  prompt_template: |-
+    Read the passage and answer the logical reasoning question. Reply with only the letter.
+
+    Passage:
+    {context}
+
+    Question:
+    {query}
+
+    Options:
+    {options_block}
+  completion_template: "{answer_letter}"
+metadata:
+  task: mcq_letter
+  notes: LogiQA — 8.7k logical reasoning MCQs from Chinese civil-service exams (translated to English).

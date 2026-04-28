@@ -1,0 +1,35 @@
+dataset_name: paws_x_de
+source_dataset: google-research-datasets/paws-x
+output_dir: data/paws_x_de
+source:
+  type: hf
+  path: google-research-datasets/paws-x
+  name: de
+  splits:
+    train: train
+    valid: validation
+    test: test
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  computed_fields:
+    answer_text:
+      lookup_index:
+        index: label
+        labels: ["no", "yes"]
+  prompt_template: |-
+    Sind die beiden Sätze Paraphrasen voneinander? Antworte nur mit "yes" oder "no".
+
+    Satz 1:
+    {sentence1}
+
+    Satz 2:
+    {sentence2}
+  completion_template: "{answer_text}"
+filters:
+  max_prompt_chars: 2500
+metadata:
+  task: exact_match
+  notes: PAWS-X German paraphrase identification. Swap `name:` for fr/es/zh/ja/ko to train other languages.

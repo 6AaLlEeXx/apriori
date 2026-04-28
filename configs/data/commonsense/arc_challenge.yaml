@@ -1,0 +1,35 @@
+dataset_name: arc_challenge
+source_dataset: allenai/ai2_arc
+output_dir: data/arc_challenge
+source:
+  type: hf
+  path: allenai/ai2_arc
+  name: ARC-Challenge
+  splits:
+    train: train
+    valid: validation
+    test: test
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  computed_fields:
+    options_block:
+      format_choices:
+        text_field: choices.text
+        label_field: choices.label
+  prompt_template: |-
+    Answer the multiple-choice science question. Reply with only the letter of the correct option.
+
+    Question:
+    {question}
+
+    Options:
+    {options_block}
+  completion_template: "{answerKey}"
+filters:
+  max_prompt_chars: 2000
+metadata:
+  task: mcq_letter
+  notes: AI2 Reasoning Challenge (hard subset). 2590 grade-school science MCQs.

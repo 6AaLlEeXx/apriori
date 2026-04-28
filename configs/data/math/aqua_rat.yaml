@@ -1,0 +1,37 @@
+dataset_name: aqua_rat
+source_dataset: deepmind/aqua_rat
+output_dir: data/aqua_rat
+source:
+  type: hf
+  path: deepmind/aqua_rat
+  name: raw
+  splits:
+    train: train
+    valid: validation
+    test: test
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  computed_fields:
+    options_block:
+      format_choices:
+        text_field: options
+        item_format: "{text}"
+        joiner: "\n"
+  prompt_template: |-
+    Solve the algebra problem. Show your reasoning and end with a single letter (A, B, C, D, or E).
+
+    Question:
+    {question}
+
+    Options:
+    {options_block}
+  completion_template: "{rationale}\nAnswer: {correct}"
+filters:
+  max_prompt_chars: 2000
+  max_completion_chars: 3000
+metadata:
+  task: gsm8k
+  notes: AQuA-RAT algebra word problems with rationales; options already carry letter prefixes.

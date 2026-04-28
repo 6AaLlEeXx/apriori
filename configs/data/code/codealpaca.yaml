@@ -1,0 +1,32 @@
+dataset_name: codealpaca
+source_dataset: sahil2801/CodeAlpaca-20k
+output_dir: data/codealpaca
+source:
+  type: hf
+  path: sahil2801/CodeAlpaca-20k
+  splits:
+    train: train
+split:
+  strategy: ratios
+  seed: 42
+  ratios:
+    train: 0.9
+    valid: 0.05
+    test: 0.05
+mapping:
+  type: template
+  prompt_parts:
+    - |-
+      {instruction}
+    - when_field: input
+      template: |-
+
+        Input:
+        {input}
+  completion_template: "{output}"
+filters:
+  max_prompt_chars: 4000
+  max_completion_chars: 2000
+metadata:
+  task: code
+  notes: CodeAlpaca-20k — 20k code-focused instruction-following examples (Alpaca-style, code-oriented).

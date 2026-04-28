@@ -1,0 +1,33 @@
+dataset_name: medqa_usmle
+source_dataset: GBaker/MedQA-USMLE-4-options
+output_dir: data/medqa_usmle
+source:
+  type: hf
+  path: GBaker/MedQA-USMLE-4-options
+  splits:
+    train: train
+    valid: dev
+    test: test
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  computed_fields:
+    options_block:
+      format_choices:
+        text_field: options
+  prompt_template: |-
+    Answer the multiple-choice medical question. Reply with only the letter.
+
+    Question:
+    {question}
+
+    Options:
+    {options_block}
+  completion_template: "{answer_idx}"
+filters:
+  max_prompt_chars: 4000
+metadata:
+  task: mcq_letter
+  notes: MedQA-USMLE 4-option variant — U.S. medical licensing exam style MCQs. `answer_idx` is already a letter.

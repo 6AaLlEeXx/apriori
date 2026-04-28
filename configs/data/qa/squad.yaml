@@ -1,0 +1,34 @@
+dataset_name: squad
+source_dataset: rajpurkar/squad
+output_dir: data/squad
+source:
+  type: hf
+  path: rajpurkar/squad
+  splits:
+    train: train
+    test: validation
+split:
+  strategy: train_valid_existing_test
+  seed: 42
+  valid_ratio: 0.05
+mapping:
+  type: template
+  computed_fields:
+    answer_text:
+      first_non_empty:
+        - answers.text.0
+  prompt_template: |-
+    Answer the question based only on the passage. Quote the answer concisely.
+
+    Passage:
+    {context}
+
+    Question:
+    {question}
+  completion_template: "{answer_text}"
+filters:
+  max_prompt_chars: 4000
+  max_completion_chars: 500
+metadata:
+  task: exact_match
+  notes: SQuAD v1.1 extractive QA; answers are spans from the context. No unanswerable cases.

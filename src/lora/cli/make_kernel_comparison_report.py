@@ -28,14 +28,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--datasets",
         nargs="*",
-        default=["dolly", "gsm8k", "sql_create_context"],
-        help="Datasets to include in the comparison table.",
+        default=None,
+        help="Optional datasets to include. Defaults to discovered completed runs.",
     )
     parser.add_argument(
         "--backends",
         nargs="*",
-        default=["frozen_pair", "lora_ntk"],
-        help="Backends to include in the comparison table.",
+        default=None,
+        help="Optional backends to include. Defaults to discovered completed runs.",
+    )
+    parser.add_argument(
+        "--base-models",
+        nargs="*",
+        default=None,
+        help="Optional base models to include. Defaults to discovered completed runs.",
     )
     return parser.parse_args()
 
@@ -45,8 +51,9 @@ def main() -> None:
     output_path = make_kernel_comparison_report(
         output_root=args.output_root,
         output_path=args.output,
-        datasets=list(args.datasets),
-        backends=list(args.backends),
+        datasets=list(args.datasets) if args.datasets else None,
+        backends=list(args.backends) if args.backends else None,
+        base_models=list(args.base_models) if args.base_models else None,
     )
     print(f"Wrote kernel comparison report to {output_path}")
 

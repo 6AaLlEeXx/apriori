@@ -1,0 +1,29 @@
+dataset_name: spider
+source_dataset: xlangai/spider
+output_dir: data/spider
+source:
+  type: hf
+  path: xlangai/spider
+  splits:
+    train: train
+    test: validation
+split:
+  strategy: train_valid_existing_test
+  seed: 42
+  valid_ratio: 0.05
+mapping:
+  type: template
+  prompt_template: |-
+    Write a SQL query that answers the question for the given database.
+
+    Database: {db_id}
+
+    Question:
+    {question}
+  completion_template: "{query}"
+filters:
+  max_prompt_chars: 3000
+  max_completion_chars: 2000
+metadata:
+  task: sql
+  notes: Spider — 10k complex cross-domain text-to-SQL queries over 200 databases. Harder than WikiSQL.

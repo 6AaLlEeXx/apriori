@@ -25,6 +25,11 @@ def tokenize_pair(
     prompt: str,
     completion: str,
 ) -> PairTokens:
+    if not hasattr(tokenizer, "apply_chat_template"):
+        raise ValueError(
+            "Kernel score-delta runs require a tokenizer with "
+            "`apply_chat_template`. Use a chat-template-compatible model for v1."
+        )
     messages = [
         {"role": "user", "content": prompt},
         {"role": "assistant", "content": completion},

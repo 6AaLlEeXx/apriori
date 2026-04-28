@@ -639,12 +639,18 @@ def collect_run_summaries(output_root: str | Path) -> list[dict[str, Any]]:
     return summaries
 
 
+def _short_model_name(base_model: str) -> str:
+    if not base_model or base_model == "-":
+        return "-"
+    return str(base_model).rsplit("/", 1)[-1]
+
+
 def render_markdown_report(summaries: list[dict[str, Any]]) -> str:
     lines = [
-        "# SmolLM2 LoRA Runs",
+        "# LoRA Runs",
         "",
-        "| Run | Dataset | Task | Status | Last Train Loss | Best Val Loss | Test PPL | Task Metric | Peak Mem (GB) | Adapter |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Run | Base Model | Dataset | Task | Status | Last Train Loss | Best Val Loss | Test PPL | Task Metric | Peak Mem (GB) | Adapter |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
 
     for summary in summaries:
@@ -661,6 +667,7 @@ def render_markdown_report(summaries: list[dict[str, Any]]) -> str:
             + " | ".join(
                 [
                     summary.get("run_name", "-"),
+                    _short_model_name(summary.get("base_model", "-")),
                     summary.get("dataset_name", "-"),
                     summary.get("task", "-"),
                     summary.get("status", "-"),

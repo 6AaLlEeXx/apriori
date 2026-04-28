@@ -1,0 +1,35 @@
+dataset_name: medmcqa
+source_dataset: openlifescienceai/medmcqa
+output_dir: data/medmcqa
+source:
+  type: hf
+  path: openlifescienceai/medmcqa
+  splits:
+    train: train
+    valid: validation
+split:
+  strategy: train_valid_existing_test
+  seed: 42
+  test_ratio: 0.02
+mapping:
+  type: template
+  computed_fields:
+    options_block:
+      format_choices:
+        text_field: [opa, opb, opc, opd]
+    answer_letter:
+      lookup_index:
+        index: cop
+        as_letter: true
+  prompt_template: |-
+    Answer the multiple-choice medical question. Reply with only the letter.
+
+    Question:
+    {question}
+
+    Options:
+    {options_block}
+  completion_template: "{answer_letter}"
+metadata:
+  task: mcq_letter
+  notes: MedMCQA — 194k Indian medical entrance exam (AIIMS/NEET-PG) MCQs. Validation used as valid; test split from train.

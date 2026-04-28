@@ -37,6 +37,51 @@ Array = NDArray[Any]
 FloatArray = NDArray[np.float64]
 
 
+def _split_limits(config: KernelRunConfig) -> dict[str, tuple[int, int]]:
+    return {
+        "train": (config.train_limit, config.seed),
+        "valid": (config.valid_limit, config.seed + 1),
+        "test": (config.test_limit, config.seed + 2),
+    }
+
+
+def validate_kernel_run_inputs(config: KernelRunConfig) -> None:
+    data_dir = resolve_project_path(config.data_dir)
+    for split, (limit, seed) in _split_limits(config).items():
+        split_path = data_dir / f"{split}.jsonl"
+        if not split_path.exists():
+            raise FileNotFoundError(f"Kernel data split not found: {split_path}")
+        if split_path.stat().st_size == 0:
+            raise ValueError(f"Kernel data split is empty: {split_path}")
+
+        records = load_pair_split(split_path, split=split)
+        if not records:
+            raise ValueError(f"Kernel data split has no JSONL records: {split_path}")
+        sampled = maybe_subset_pairs(records, limit=limit, seed=seed)
+        if not sampled:
+            raise ValueError(f"Kernel data split has no sampled records: {split_path}")
+        for record in sampled:
+            if not record.prompt.strip():
+                raise ValueError(
+                    f"Kernel data row has empty `prompt`: "
+                    f"{split_path} ({record.pair_id})"
+                )
+            if not record.completion.strip():
+                raise ValueError(
+                    f"Kernel data row has empty `completion`: "
+                    f"{split_path} ({record.pair_id})"
+                )
+
+    adapter_dir = resolve_project_path(config.adapter_path)
+    if not adapter_dir.exists():
+        raise FileNotFoundError(f"Adapter path does not exist: {adapter_dir}")
+    if not adapter_dir.is_dir():
+        raise FileNotFoundError(f"Adapter path is not a directory: {adapter_dir}")
+    adapter_config = adapter_dir / "adapter_config.json"
+    if not adapter_config.exists():
+        raise FileNotFoundError(f"Missing adapter config: {adapter_config}")
+
+
 def _load_split_records(
     config: KernelRunConfig,
 ) -> dict[str, list[PairRecord]]:
@@ -47,17 +92,9 @@ def _load_split_records(
         "test": load_pair_split(data_dir / "test.jsonl", split="test"),
     }
     return {
-        "train": maybe_subset_pairs(
-            raw["train"], limit=config.train_limit, seed=config.seed
-        ),
-        "valid": maybe_subset_pairs(
-            raw["valid"],
-            limit=config.valid_limit,
-            seed=config.seed + 1,
-        ),
-        "test": maybe_subset_pairs(
-            raw["test"], limit=config.test_limit, seed=config.seed + 2
-        ),
+        split: maybe_subset_pairs(records, limit=limit, seed=seed)
+        for split, records in raw.items()
+        for limit, seed in [_split_limits(config)[split]]
     }
 
 
@@ -295,6 +332,7 @@ def run_kernel_experiment(
     runtime_config = resolve_kernel_run_config(config)
     if runtime_config.target != "score_delta":
         raise ValueError("Only `score_delta` is currently implemented for kernel runs.")
+    validate_kernel_run_inputs(runtime_config)
     run_name = run_name or build_kernel_run_name(runtime_config)
     paths = prepare_kernel_run(runtime_config, run_name)
     save_kernel_run_config(runtime_config, paths.resolved_config_path)
@@ -416,6 +454,9 @@ def run_kernel_experiment(
         "run_name": paths.run_name,
         "status": "completed",
         "dataset_name": runtime_config.dataset_name,
+        "task": runtime_config.task,
+        "base_model": runtime_config.base_model,
+        "data_dir": runtime_config.data_dir,
         "backend": runtime_config.backend,
         "target": runtime_config.target,
         "adapter_path": runtime_config.adapter_path,

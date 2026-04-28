@@ -1,0 +1,33 @@
+dataset_name: piqa
+source_dataset: ybisk/piqa
+output_dir: data/piqa
+source:
+  type: hf
+  path: ybisk/piqa
+  splits:
+    train: train
+    valid: validation
+    test: test
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  computed_fields:
+    answer_letter:
+      lookup_index:
+        index: label
+        as_letter: true
+  prompt_template: |-
+    Which solution better achieves the physical goal? Reply with only A or B.
+
+    Goal:
+    {goal}
+
+    Solutions:
+    A. {sol1}
+    B. {sol2}
+  completion_template: "{answer_letter}"
+metadata:
+  task: mcq_letter
+  notes: Physical Interaction QA. Test labels are hidden on HF.

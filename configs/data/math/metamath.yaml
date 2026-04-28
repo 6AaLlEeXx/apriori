@@ -1,0 +1,28 @@
+dataset_name: metamath
+source_dataset: meta-math/MetaMathQA
+output_dir: data/metamath
+source:
+  type: hf
+  path: meta-math/MetaMathQA
+  split: train
+  max_examples: 50000
+split:
+  strategy: ratios
+  seed: 42
+  valid_ratio: 0.02
+  test_ratio: 0.02
+mapping:
+  type: template
+  prompt_template: |-
+    Solve the following math problem step by step. End your answer with `The answer is: <answer>`.
+
+    Problem:
+    {query}
+  completion_template: "{response}"
+filters:
+  max_prompt_chars: 3000
+  max_completion_chars: 4000
+  max_total_chars: 6000
+metadata:
+  task: gsm8k
+  notes: MetaMath — 395k augmented GSM8K/MATH pairs; subsetted to 50k by default.

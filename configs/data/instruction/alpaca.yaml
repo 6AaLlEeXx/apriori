@@ -1,0 +1,27 @@
+dataset_name: alpaca
+source_dataset: tatsu-lab/alpaca
+output_dir: data/alpaca
+source:
+  type: hf
+  path: tatsu-lab/alpaca
+  split: train
+split:
+  strategy: ratios
+  seed: 42
+  valid_ratio: 0.05
+  test_ratio: 0.05
+mapping:
+  type: template
+  prompt_parts:
+    - Write a helpful response to the following instruction.
+    - "Instruction:\n{instruction}"
+    - template: "Input:\n{input}"
+      when_field: input
+  completion_template: "{output}"
+filters:
+  max_prompt_chars: 4000
+  max_completion_chars: 3000
+  max_total_chars: 6000
+metadata:
+  task: generic
+  notes: Stanford Alpaca instruction-tuning dataset; ~52k GPT-generated examples.

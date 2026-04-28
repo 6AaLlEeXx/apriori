@@ -67,6 +67,118 @@ def test_template_formatter_supports_conditionals_and_computed_fields() -> None:
     assert record["completion"] == "zip(a, b)"
 
 
+def test_format_choices_renders_mcq_options() -> None:
+    formatter = build_record_formatter(
+        {
+            "type": "template",
+            "computed_fields": {
+                "options": {
+                    "format_choices": {
+                        "text_field": "choices.text",
+                        "label_field": "choices.label",
+                    }
+                }
+            },
+            "prompt_template": "Q: {question}\n\n{options}",
+            "completion_template": "{answerKey}",
+        }
+    )
+    record = formatter(
+        {
+            "question": "What is the sky?",
+            "choices": {"text": ["Blue", "Green"], "label": ["A", "B"]},
+            "answerKey": "A",
+        }
+    )
+    assert "A. Blue\nB. Green" in record["prompt"]
+    assert record["completion"] == "A"
+
+
+def test_format_choices_synthesizes_labels_for_plain_list() -> None:
+    formatter = build_record_formatter(
+        {
+            "type": "template",
+            "computed_fields": {
+                "options": {"format_choices": {"text_field": "choices"}},
+                "answer_letter": {
+                    "lookup_index": {"index": "answer", "as_letter": True}
+                },
+            },
+            "prompt_template": "Q: {question}\n{options}",
+            "completion_template": "{answer_letter}",
+        }
+    )
+    record = formatter(
+        {
+            "question": "2+2?",
+            "choices": ["3", "4", "5", "22"],
+            "answer": 1,
+        }
+    )
+    assert "A. 3\nB. 4\nC. 5\nD. 22" in record["prompt"]
+    assert record["completion"] == "B"
+
+
+def test_lookup_index_supports_inline_labels() -> None:
+    formatter = build_record_formatter(
+        {
+            "type": "template",
+            "computed_fields": {
+                "label_text": {
+                    "lookup_index": {
+                        "index": "label",
+                        "labels": ["negative", "neutral", "positive"],
+                    }
+                }
+            },
+            "prompt_template": "Review: {text}",
+            "completion_template": "{label_text}",
+        }
+    )
+    record = formatter({"text": "Great!", "label": 2})
+    assert record["completion"] == "positive"
+
+
+def test_lookup_index_returns_list_element_when_not_as_letter() -> None:
+    formatter = build_record_formatter(
+        {
+            "type": "template",
+            "computed_fields": {
+                "answer_text": {"lookup_index": {"list": "choices", "index": "answer"}}
+            },
+            "prompt_template": "{question}",
+            "completion_template": "{answer_text}",
+        }
+    )
+    record = formatter({"question": "Q?", "choices": ["A1", "A2", "A3"], "answer": 2})
+    assert record["completion"] == "A3"
+
+
+def test_validation_rejects_unknown_computed_field_op(tmp_path) -> None:
+    source_path = tmp_path / "records.jsonl"
+    _write_jsonl(source_path, [{"question": "q", "answer": "a"}])
+    config_path = tmp_path / "data.yaml"
+    config_path.write_text(
+        f"""
+dataset_name: bad_op
+source:
+  type: jsonl
+  path: {source_path}
+split:
+  strategy: train_valid
+mapping:
+  type: template
+  computed_fields:
+    x:
+      reverse: [a, b]
+  prompt_template: "{{question}}"
+  completion_template: "{{answer}}"
+"""
+    )
+    with pytest.raises(ValueError, match="Unknown computed_fields op"):
+        prepare_dataset_from_config(config_path)
+
+
 def test_write_jsonl_skips_overlong_records(tmp_path) -> None:
     dataset = [
         {"prompt": "short", "completion": "ok"},

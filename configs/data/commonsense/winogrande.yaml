@@ -1,0 +1,29 @@
+dataset_name: winogrande
+source_dataset: allenai/winogrande
+output_dir: data/winogrande
+source:
+  type: hf
+  path: allenai/winogrande
+  name: winogrande_xl
+  splits:
+    train: train
+    valid: validation
+    test: test
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  prompt_template: |-
+    Which option best fills the blank (marked with _)? Reply with only 1 or 2.
+
+    Sentence:
+    {sentence}
+
+    Options:
+    1. {option1}
+    2. {option2}
+  completion_template: "{answer}"
+metadata:
+  task: mcq_letter
+  notes: Winogrande adversarial pronoun resolution (xl subset); test labels are hidden.

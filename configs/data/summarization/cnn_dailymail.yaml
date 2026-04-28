@@ -1,0 +1,29 @@
+dataset_name: cnn_dailymail
+source_dataset: abisee/cnn_dailymail
+output_dir: data/cnn_dailymail
+source:
+  type: hf
+  path: abisee/cnn_dailymail
+  name: "3.0.0"
+  splits:
+    train: train
+    valid: validation
+    test: test
+  max_examples: 50000
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  prompt_template: |-
+    Summarize the news article in 3-4 bullet-style highlight sentences.
+
+    Article:
+    {article}
+  completion_template: "{highlights}"
+filters:
+  max_prompt_chars: 8000
+  max_completion_chars: 1000
+metadata:
+  task: rouge
+  notes: CNN/DailyMail 3.0.0 — multi-sentence highlight-style summarization. 287k train; subsetted to 50k by default.

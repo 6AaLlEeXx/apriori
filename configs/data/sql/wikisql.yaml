@@ -1,0 +1,33 @@
+dataset_name: wikisql
+source_dataset: Salesforce/wikisql
+output_dir: data/wikisql
+source:
+  type: hf
+  path: Salesforce/wikisql
+  splits:
+    train: train
+    valid: validation
+    test: test
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  computed_fields:
+    sql_query:
+      first_non_empty:
+        - sql.human_readable
+  prompt_template: |-
+    Write a SQL query that answers the question over the given table.
+
+    Table header: {table.header}
+
+    Question:
+    {question}
+  completion_template: "{sql_query}"
+filters:
+  max_prompt_chars: 3000
+  max_completion_chars: 1000
+metadata:
+  task: sql
+  notes: WikiSQL — 80k single-table natural-language to SQL queries. Simpler structure than Spider.

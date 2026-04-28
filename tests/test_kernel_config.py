@@ -60,6 +60,7 @@ def test_build_kernel_run_name_includes_backend_and_limits() -> None:
 def test_resolve_adapter_path_matches_dataset_aliases(tmp_path: Path) -> None:
     adapter_dir = tmp_path / "adapters" / "sql"
     adapter_dir.mkdir(parents=True)
+    adapter_dir.joinpath("adapter_config.json").write_text("{}")
     summary_dir = tmp_path / "runs" / "example"
     summary_dir.mkdir(parents=True)
     summary_dir.joinpath("summary.json").write_text(

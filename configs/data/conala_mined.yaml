@@ -15,4 +15,5 @@ source:
         split: train
         max_examples: 10000
 metadata:
+  task: code
   notes: Curated CoNaLa with a sampled mined subset appended to train.

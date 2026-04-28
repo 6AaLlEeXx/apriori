@@ -1,0 +1,28 @@
+dataset_name: xsum
+source_dataset: EdinburghNLP/xsum
+output_dir: data/xsum
+source:
+  type: hf
+  path: EdinburghNLP/xsum
+  splits:
+    train: train
+    valid: validation
+    test: test
+  max_examples: 50000
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  prompt_template: |-
+    Summarize the article in a single concise sentence.
+
+    Article:
+    {document}
+  completion_template: "{summary}"
+filters:
+  max_prompt_chars: 6000
+  max_completion_chars: 400
+metadata:
+  task: rouge
+  notes: XSum — BBC news abstractive one-sentence summarization. 204k/11k/11k; subsetted to 50k train by default.

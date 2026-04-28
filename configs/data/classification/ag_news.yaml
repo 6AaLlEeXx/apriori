@@ -1,0 +1,31 @@
+dataset_name: ag_news
+source_dataset: fancyzhx/ag_news
+output_dir: data/ag_news
+source:
+  type: hf
+  path: fancyzhx/ag_news
+  splits:
+    train: train
+    test: test
+split:
+  strategy: train_valid_existing_test
+  seed: 42
+  valid_ratio: 0.05
+mapping:
+  type: template
+  computed_fields:
+    answer_text:
+      lookup_index:
+        index: label
+        labels: [World, Sports, Business, Sci/Tech]
+  prompt_template: |-
+    Classify the topic of the news headline/article as one of: World, Sports, Business, Sci/Tech. Reply with only the topic.
+
+    Article:
+    {text}
+  completion_template: "{answer_text}"
+filters:
+  max_prompt_chars: 4000
+metadata:
+  task: exact_match
+  notes: AG News — 120k train / 7.6k test 4-class news topic classification.

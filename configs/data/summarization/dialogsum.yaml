@@ -1,0 +1,27 @@
+dataset_name: dialogsum
+source_dataset: knkarthick/dialogsum
+output_dir: data/dialogsum
+source:
+  type: hf
+  path: knkarthick/dialogsum
+  splits:
+    train: train
+    valid: validation
+    test: test
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  prompt_template: |-
+    Summarize the dialogue below concisely in the third person.
+
+    Dialogue:
+    {dialogue}
+  completion_template: "{summary}"
+filters:
+  max_prompt_chars: 6000
+  max_completion_chars: 500
+metadata:
+  task: rouge
+  notes: DialogSum — real-life scenario dialogue summarization (12k dialogues). Complementary to SAMSum (chit-chat style).

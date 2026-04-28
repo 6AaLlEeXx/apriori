@@ -23,4 +23,5 @@ mapping:
     {question}
   completion_template: "{answer}"
 metadata:
+  task: sql
   notes: Text-to-SQL adapter data with a bounded source subset by default.

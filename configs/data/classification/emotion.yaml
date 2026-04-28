@@ -1,0 +1,32 @@
+dataset_name: emotion
+source_dataset: dair-ai/emotion
+output_dir: data/emotion
+source:
+  type: hf
+  path: dair-ai/emotion
+  name: split
+  splits:
+    train: train
+    valid: validation
+    test: test
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  computed_fields:
+    answer_text:
+      lookup_index:
+        index: label
+        labels: [sadness, joy, love, anger, fear, surprise]
+  prompt_template: |-
+    Classify the emotion expressed in the tweet as one of: sadness, joy, love, anger, fear, surprise. Reply with only the emotion.
+
+    Tweet:
+    {text}
+  completion_template: "{answer_text}"
+filters:
+  max_prompt_chars: 1500
+metadata:
+  task: exact_match
+  notes: Emotion — 16k/2k/2k English Twitter 6-class emotion classification.

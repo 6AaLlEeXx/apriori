@@ -1,0 +1,37 @@
+dataset_name: hellaswag
+source_dataset: Rowan/hellaswag
+output_dir: data/hellaswag
+source:
+  type: hf
+  path: Rowan/hellaswag
+  splits:
+    train: train
+    valid: validation
+    test: test
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  computed_fields:
+    options_block:
+      format_choices:
+        text_field: endings
+    answer_letter:
+      lookup_index:
+        index: label
+        as_letter: true
+  prompt_template: |-
+    Choose the most likely continuation. Reply with only the letter.
+
+    Context:
+    {ctx}
+
+    Endings:
+    {options_block}
+  completion_template: "{answer_letter}"
+filters:
+  max_prompt_chars: 2500
+metadata:
+  task: mcq_letter
+  notes: HellaSwag commonsense sentence completion; test split has no labels (drops to 0 completions).

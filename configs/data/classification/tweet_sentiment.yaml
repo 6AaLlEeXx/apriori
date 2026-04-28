@@ -1,0 +1,32 @@
+dataset_name: tweet_sentiment
+source_dataset: cardiffnlp/tweet_eval
+output_dir: data/tweet_sentiment
+source:
+  type: hf
+  path: cardiffnlp/tweet_eval
+  name: sentiment
+  splits:
+    train: train
+    valid: validation
+    test: test
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  computed_fields:
+    answer_text:
+      lookup_index:
+        index: label
+        labels: [negative, neutral, positive]
+  prompt_template: |-
+    Classify the sentiment of the tweet as one of: negative, neutral, positive. Reply with only the label.
+
+    Tweet:
+    {text}
+  completion_template: "{answer_text}"
+filters:
+  max_prompt_chars: 2000
+metadata:
+  task: exact_match
+  notes: TweetEval sentiment subset — 45k/2k/12k 3-class tweet sentiment classification.

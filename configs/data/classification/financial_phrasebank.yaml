@@ -1,0 +1,35 @@
+dataset_name: financial_phrasebank
+source_dataset: takala/financial_phrasebank
+output_dir: data/financial_phrasebank
+source:
+  type: hf
+  path: takala/financial_phrasebank
+  name: sentences_allagree
+  trust_remote_code: true
+  splits:
+    train: train
+split:
+  strategy: ratios
+  seed: 42
+  ratios:
+    train: 0.8
+    valid: 0.1
+    test: 0.1
+mapping:
+  type: template
+  computed_fields:
+    answer_text:
+      lookup_index:
+        index: label
+        labels: [negative, neutral, positive]
+  prompt_template: |-
+    Classify the sentiment of the financial news sentence as one of: negative, neutral, positive. Reply with only the label.
+
+    Sentence:
+    {sentence}
+  completion_template: "{answer_text}"
+filters:
+  max_prompt_chars: 2000
+metadata:
+  task: exact_match
+  notes: Financial PhraseBank (all-agree subset) — ~2.3k sentences with full annotator agreement on 3-class sentiment.

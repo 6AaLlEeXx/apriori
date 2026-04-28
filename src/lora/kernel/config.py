@@ -44,6 +44,7 @@ class KernelRunConfig:
     test_limit: int = 128
     kernel: KernelMethodConfig = field(default_factory=KernelMethodConfig)
     backend_args: dict[str, Any] = field(default_factory=dict)
+    source_config: dict[str, str] = field(default_factory=dict)
     run_tags: list[str] = field(default_factory=list)
     notes: str | None = None
 
@@ -141,6 +142,10 @@ def load_kernel_run_config(path: str | Path) -> KernelRunConfig:
     kernel_payload = dict(merged.get("kernel", {}))
     merged["kernel"] = KernelMethodConfig(**kernel_payload)
     merged["backend_args"] = dict(merged.get("backend_args", {}))
+    merged["source_config"] = {
+        str(key): str(value)
+        for key, value in dict(merged.get("source_config", {})).items()
+    }
     merged["run_tags"] = [str(tag) for tag in merged.get("run_tags", [])]
     return KernelRunConfig(**merged)
 
@@ -220,6 +225,8 @@ def resolve_adapter_path(
     for summary in _load_lora_run_summaries(output_root):
         adapter_dir = str(summary.get("adapter_dir") or "").strip()
         if not adapter_dir or not Path(adapter_dir).exists():
+            continue
+        if not Path(adapter_dir).joinpath("adapter_config.json").exists():
             continue
         if str(summary.get("status", "")).lower() != "completed":
             continue
@@ -313,6 +320,7 @@ def build_kernel_metadata(
         "test_limit": config.test_limit,
         "kernel": asdict(config.kernel),
         "backend_args": dict(config.backend_args),
+        "source_config": dict(config.source_config),
         "run_tags": list(config.run_tags),
         "notes": config.notes,
     }

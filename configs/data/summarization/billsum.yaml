@@ -1,0 +1,27 @@
+dataset_name: billsum
+source_dataset: FiscalNote/billsum
+output_dir: data/billsum
+source:
+  type: hf
+  path: FiscalNote/billsum
+  splits:
+    train: train
+    test: test
+split:
+  strategy: train_valid_existing_test
+  seed: 42
+  valid_ratio: 0.05
+mapping:
+  type: template
+  prompt_template: |-
+    Summarize the following U.S. congressional bill clearly and concisely.
+
+    Bill text:
+    {text}
+  completion_template: "{summary}"
+filters:
+  max_prompt_chars: 12000
+  max_completion_chars: 2000
+metadata:
+  task: rouge
+  notes: BillSum — summarization of U.S. Congressional and California state bills. Long-input legal-domain summarization.

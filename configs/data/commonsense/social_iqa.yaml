@@ -1,0 +1,31 @@
+dataset_name: social_iqa
+source_dataset: allenai/social_i_qa
+output_dir: data/social_iqa
+source:
+  type: hf
+  path: allenai/social_i_qa
+  split: train
+split:
+  strategy: ratios
+  seed: 42
+  valid_ratio: 0.05
+  test_ratio: 0.05
+mapping:
+  type: template
+  prompt_template: |-
+    Answer the social reasoning question. Reply with only 1, 2, or 3.
+
+    Context:
+    {context}
+
+    Question:
+    {question}
+
+    Options:
+    1. {answerA}
+    2. {answerB}
+    3. {answerC}
+  completion_template: "{label}"
+metadata:
+  task: mcq_letter
+  notes: Social IQa. No public test labels; 90/5/5 ratios derived from the train split.

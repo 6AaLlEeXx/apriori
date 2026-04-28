@@ -21,4 +21,5 @@ mapping:
     {question}
   completion_template: "{answer}"
 metadata:
+  task: gsm8k
   notes: Math reasoning prompts preserve the GSM8K final-answer marker.

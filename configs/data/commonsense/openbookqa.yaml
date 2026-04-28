@@ -1,0 +1,33 @@
+dataset_name: openbookqa
+source_dataset: allenai/openbookqa
+output_dir: data/openbookqa
+source:
+  type: hf
+  path: allenai/openbookqa
+  name: main
+  splits:
+    train: train
+    valid: validation
+    test: test
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  computed_fields:
+    options_block:
+      format_choices:
+        text_field: choices.text
+        label_field: choices.label
+  prompt_template: |-
+    Answer the science question using open-book knowledge. Reply with only the letter.
+
+    Question:
+    {question_stem}
+
+    Options:
+    {options_block}
+  completion_template: "{answerKey}"
+metadata:
+  task: mcq_letter
+  notes: OpenBookQA — 5957 science MCQs requiring open-book knowledge and reasoning.

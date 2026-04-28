@@ -1,67 +1,83 @@
 # LoRA Kernel Experiments
 
-This pipeline lives entirely inside this standalone `lora/` project and is separate from the older `src/` NTK benchmark.
-
-The current experiment predicts held-out adapter scores for prompt/completion pairs:
+This pipeline predicts held-out adapter score deltas for prepared prompt/completion pairs:
 
 - score each pair with the base model
 - score the same pair with a trained LoRA adapter
 - fit KRR on `score_delta = adapter_score - base_score`
-- compare predicted vs true held-out score deltas
+- compare predicted vs. true held-out score deltas
 
-## Commands
+The kernel runner is dataset-agnostic at the prepared-data level: any dataset under `data/<name>/` can be used if it has non-empty `train.jsonl`, `valid.jsonl`, and `test.jsonl` files with `prompt` and `completion` fields.
+
+## Generate Kernel Configs
+
+Generate one frozen-pair config from a data recipe:
+
+```bash
+uv run mlx-lora-generate-kernel-configs \
+  --data-config configs/data/instruction/alpaca.yaml
+```
+
+Generate configs for every data recipe:
+
+```bash
+uv run mlx-lora-generate-kernel-configs --all-data-configs
+```
+
+Generate configs with an explicit model:
+
+```bash
+uv run mlx-lora-generate-kernel-configs \
+  --data-config configs/data/gsm8k.yaml \
+  --base-model mlx-community/Qwen2.5-1.5B-Instruct-4bit
+```
+
+Generate both the cheap frozen baseline and the experimental LoRA-NTK backend:
+
+```bash
+uv run mlx-lora-generate-kernel-configs \
+  --data-config configs/data/sql/spider.yaml \
+  --backends frozen_pair lora_ntk
+```
+
+Preview without writing files:
+
+```bash
+uv run mlx-lora-generate-kernel-configs \
+  --all-data-configs \
+  --dry-run
+```
+
+Generated files are written to `configs/kernel/generated/` by default. Existing hand-written configs under `configs/kernel/` remain valid.
+
+## Run Experiments
 
 Preview a run name:
 
 ```bash
-uv run mlx-lora-run-kernel --config configs/kernel/dolly_frozen_pair.yaml --dry-run
+uv run mlx-lora-run-kernel \
+  --config configs/kernel/generated/alpaca_frozen_pair.yaml \
+  --dry-run
 ```
 
-Run a tiny end-to-end smoke test:
-
-```bash
-uv run mlx-lora-run-kernel --config configs/kernel/dolly_frozen_pair_smoke.yaml
-```
-
-Run a tiny LoRA-NTK smoke test:
-
-```bash
-uv run mlx-lora-run-kernel --config configs/kernel/dolly_lora_ntk_smoke.yaml
-```
-
-Run the frozen-feature baseline:
-
-```bash
-uv run mlx-lora-run-kernel --config configs/kernel/dolly_frozen_pair.yaml
-```
-
-Run the experimental LoRA-tangent backend:
-
-```bash
-uv run mlx-lora-run-kernel --config configs/kernel/dolly_lora_ntk.yaml
-```
-
-Run the same experiment on GSM8K:
-
-```bash
-uv run mlx-lora-run-kernel --config configs/kernel/gsm8k_frozen_pair.yaml
-uv run mlx-lora-run-kernel --config configs/kernel/gsm8k_lora_ntk.yaml
-```
-
-Run the same experiment on SQL Create Context:
-
-```bash
-uv run mlx-lora-run-kernel --config configs/kernel/sql_create_context_frozen_pair.yaml
-uv run mlx-lora-run-kernel --config configs/kernel/sql_create_context_lora_ntk.yaml
-```
-
-Override the config's model for one kernel run:
+Run an experiment:
 
 ```bash
 uv run mlx-lora-run-kernel \
-  --config configs/kernel/dolly_frozen_pair.yaml \
+  --config configs/kernel/generated/alpaca_frozen_pair.yaml
+```
+
+Override the config's model for one run:
+
+```bash
+uv run mlx-lora-run-kernel \
+  --config configs/kernel/generated/alpaca_frozen_pair.yaml \
   --base-model mlx-community/Qwen2.5-1.5B-Instruct-4bit
 ```
+
+If `adapter_path` is empty, the kernel runner picks the latest completed LoRA adapter for the same dataset and exact base model from `results/runs/*/summary.json`.
+
+## Reports
 
 Build the aggregate markdown report:
 
@@ -69,20 +85,31 @@ Build the aggregate markdown report:
 uv run mlx-lora-make-kernel-report
 ```
 
-Build the cross-dataset comparison table:
+Build a comparison table from discovered completed kernel runs:
 
 ```bash
 uv run mlx-lora-make-kernel-comparison
 ```
 
-## Config Notes
+Filter the comparison table:
 
-- If `adapter_path` is empty, the kernel runner automatically picks the latest completed LoRA adapter for the same dataset and base model from `results/runs/*/summary.json`.
+```bash
+uv run mlx-lora-make-kernel-comparison \
+  --datasets dolly gsm8k spider \
+  --backends frozen_pair lora_ntk \
+  --base-models mlx-community/SmolLM2-1.7B-Instruct
+```
+
+The comparison report groups runs by base model, dataset, and backend. For each group it chooses the run with the largest train split, then breaks ties by higher test delta Pearson and newer run name.
+
+## V1 Constraints
+
 - `target` is currently fixed to `score_delta`.
-- `backend=frozen_pair` uses mean pooled final hidden states over the completion span.
-- `backend=lora_ntk` computes score Jacobians with respect to the inserted LoRA parameters.
-- `leaf_filter=lora_b_only` is the practical default for the NTK backend because MLX LoRA initializes `lora_b` to zero, so `lora_a` gradients are zero at initialization.
-- The comparison report chooses one primary run per dataset/backend pair by taking the largest train split first, then breaking ties by higher test delta Pearson.
+- Prepared data must contain non-empty `prompt` and `completion` values.
+- The tokenizer must expose `apply_chat_template`; plain tokenizer fallback is not implemented yet.
+- `adapter_path` must resolve to a LoRA/DoRA adapter directory with `adapter_config.json`.
+- `backend=frozen_pair` uses mean-pooled final hidden states over the completion span.
+- `backend=lora_ntk` computes score Jacobians with respect to inserted LoRA parameters and should be kept to small subsets.
 
 ## Outputs
 
@@ -100,15 +127,4 @@ results/kernel/runs/<run_name>/
   predictions/{train,valid,test}.jsonl
 ```
 
-The key metrics are:
-
-- Pearson and Spearman correlation on score deltas
-- RMSE and MAE on score deltas
-- sign accuracy on score deltas
-- the same correlation/error metrics on reconstructed adapter scores
-
-## Practical Limits
-
-- `frozen_pair` is the cheap baseline and can handle larger subsets.
-- `lora_ntk` is expensive. Keep it small at first, such as `64-128` training examples.
-- The current implementation materializes explicit feature arrays, so `lora_ntk` is still a small-subset experiment rather than a large-scale one.
+The key metrics are Pearson/Spearman correlation, RMSE, MAE, and sign accuracy on score deltas, plus correlation/error metrics on reconstructed adapter scores.

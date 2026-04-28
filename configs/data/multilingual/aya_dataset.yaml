@@ -1,0 +1,25 @@
+dataset_name: aya_dataset
+source_dataset: CohereLabs/aya_dataset
+output_dir: data/aya_dataset
+source:
+  type: hf
+  path: CohereLabs/aya_dataset
+  splits:
+    train: train
+    test: test
+  max_examples: 50000
+split:
+  strategy: train_valid_existing_test
+  seed: 42
+  valid_ratio: 0.05
+mapping:
+  type: template
+  prompt_template: |-
+    {inputs}
+  completion_template: "{targets}"
+filters:
+  max_prompt_chars: 4000
+  max_completion_chars: 4000
+metadata:
+  task: generation
+  notes: Aya Dataset — human-curated multilingual instructions across 65+ languages. Subsetted to 50k by default.

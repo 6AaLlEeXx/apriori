@@ -1,0 +1,31 @@
+dataset_name: hendrycks_math
+source_dataset: hendrycks/competition_math
+output_dir: data/hendrycks_math
+source:
+  type: hf
+  path: hendrycks/competition_math
+  splits:
+    train: train
+    test: test
+split:
+  strategy: train_valid_existing_test
+  seed: 42
+  valid_ratio: 0.05
+mapping:
+  type: template
+  prompt_template: |-
+    Solve the following competition math problem. Show your reasoning and put the final answer inside `\boxed{{...}}`.
+
+    Level: {level}
+    Type: {type}
+
+    Problem:
+    {problem}
+  completion_template: "{solution}"
+filters:
+  max_prompt_chars: 3000
+  max_completion_chars: 5000
+  max_total_chars: 7000
+metadata:
+  task: hendrycks_math
+  notes: Competition-level math problems (MATH benchmark); LaTeX answers inside \boxed{}.

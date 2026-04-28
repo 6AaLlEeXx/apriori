@@ -1,0 +1,24 @@
+dataset_name: sciq
+source_dataset: allenai/sciq
+output_dir: data/sciq
+source:
+  type: hf
+  path: allenai/sciq
+  splits:
+    train: train
+    valid: validation
+    test: test
+split:
+  strategy: existing
+  seed: 42
+mapping:
+  type: template
+  prompt_parts:
+    - Answer the science question using the supporting text if helpful.
+    - template: "Support:\n{support}"
+      when_field: support
+    - "Question:\n{question}"
+  completion_template: "{correct_answer}"
+metadata:
+  task: exact_match
+  notes: SciQ — 13.7k crowdsourced science questions with free-text answers and optional supporting passage.

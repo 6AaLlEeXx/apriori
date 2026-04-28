@@ -28,4 +28,5 @@ filters:
     max_seq_length: 512
     min_supervised_tokens: 1
 metadata:
+  task: generic
   notes: General instruction-following data with token-aware filtering.
