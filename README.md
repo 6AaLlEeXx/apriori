@@ -12,11 +12,17 @@ All relative paths in configs and CLIs are resolved against this project directo
 
 ## Codebase Layout
 
-The codebase is intentionally flat. Top-level modules handle shared workflows, while small packages keep CLI, kernel, and selection concerns separate:
+The codebase is intentionally flat. Top-level modules handle shared workflows,
+while small directories keep CLI, kernel, selector, transformation, and
+projection concerns separate:
 
 - `cli/` contains command-line entrypoints.
 - `kernel/` contains LoRA-NTK feature extraction, scoring, KRR experiments, adapter comparison, and reports.
-- `selection/` contains training-set selectors, including LoRA-NTK k-means.
+- `selectors/` contains training-set selector files, including LoRA-NTK k-means.
+- `transformations/` contains feature transformations such as `identity` and `sign`.
+- `projection/` contains feature projections such as `identity` and `sparse_random`.
+- `feature_pipeline.py` composes feature extraction, transformations, and projection.
+- `selector_algorithms.py` contains feature-matrix selection algorithms such as k-means.
 - `data_prep.py` prepares raw datasets into prompt/completion JSONL splits.
 - `mlops.py` manages LoRA run configs, commands, logs, metadata, and summaries.
 - `eval.py` contains task-level prediction metrics.
@@ -30,6 +36,136 @@ uv sync --group dev
 ```
 
 The MLX dependencies are installed only on macOS. Dataset preparation uses Hugging Face `datasets`. The checked-in configs default to `mlx-community/SmolLM2-1.7B-Instruct`, but the model is just a parameter.
+
+## First Empirical Validation
+
+The first validation asks six practical questions:
+
+- is LoRA-NTK k-means better than a random subset at the same subset size?
+- does `sign(features)` alone preserve quality relative to raw k-means?
+- can sparse random projection reduce feature dimensionality while preserving
+  most of the k-means result quality?
+- does adding `sign(features)` preserve quality relative to projected features?
+- does each subset adapter stay close to the full-data adapter?
+- do LoRA-NTK features predict held-out adapter score deltas?
+
+Subset methods:
+
+| Method | Run suffix | Selector | Transformation | Projection |
+| --- | --- | --- | --- | --- |
+| `random` | `random` | `selectors/random.py` | - | - |
+| `kmeans` | `kmeans` | `selectors/lora_ntk_kmeans.py` | `identity` | `identity` |
+| `kmeans+sign` | `kmeans-sign` | `selectors/lora_ntk_kmeans.py` | `sign` | `identity` |
+| `kmeans+sparse_random` | `kmeans-srp` | `selectors/lora_ntk_kmeans.py` | `identity` | `sparse_random` |
+| `kmeans+sparse_random+sign` | `kmeans-srp-sign` | `selectors/lora_ntk_kmeans.py` | `sign` | `sparse_random` |
+
+Run the workflow on one dataset/model pair first:
+
+```bash
+uv run mlx-lora-prepare-data \
+  --config configs/data/<dataset>.yaml \
+  --base-model <model>
+```
+
+Train the full-data adapter:
+
+```bash
+uv run mlx-lora-run \
+  --config configs/<dataset>.yaml \
+  --run-name <dataset>-full \
+  --base-model <model>
+```
+
+Train the five selected-subset adapters:
+
+```bash
+uv run mlx-lora-run \
+  --config configs/<dataset>.yaml \
+  --run-name <dataset>-random-<n> \
+  --base-model <model> \
+  --sample-selector selectors/random.py \
+  --max-examples <n>
+
+uv run mlx-lora-run \
+  --config configs/<dataset>.yaml \
+  --run-name <dataset>-kmeans-<n> \
+  --base-model <model> \
+  --sample-selector selectors/lora_ntk_kmeans.py \
+  --max-examples <n>
+
+uv run mlx-lora-run \
+  --config configs/<dataset>.yaml \
+  --run-name <dataset>-kmeans-sign-<n> \
+  --base-model <model> \
+  --sample-selector selectors/lora_ntk_kmeans.py \
+  --max-examples <n> \
+  --selector-transformation sign
+
+uv run mlx-lora-run \
+  --config configs/<dataset>.yaml \
+  --run-name <dataset>-kmeans-srp-<n> \
+  --base-model <model> \
+  --sample-selector selectors/lora_ntk_kmeans.py \
+  --max-examples <n> \
+  --selector-projection sparse_random \
+  --selector-projection-components 1024
+
+uv run mlx-lora-run \
+  --config configs/<dataset>.yaml \
+  --run-name <dataset>-kmeans-srp-sign-<n> \
+  --base-model <model> \
+  --sample-selector selectors/lora_ntk_kmeans.py \
+  --max-examples <n> \
+  --selector-transformation sign \
+  --selector-projection sparse_random \
+  --selector-projection-components 1024
+```
+
+Compare each subset adapter against the full adapter on the same held-out split:
+
+```bash
+uv run mlx-lora-compare-adapters \
+  --config configs/<dataset>.yaml \
+  --full-adapter results/adapters/<dataset>-full \
+  --subset-adapter results/adapters/<dataset>-<run-suffix>-<n> \
+  --split test \
+  --limit 0 \
+  --method <method>
+```
+
+Run the NTK prediction experiment:
+
+```bash
+uv run mlx-lora-run-kernel \
+  --config configs/kernel/<dataset>_lora_ntk.yaml \
+  --base-model <model>
+```
+
+If the kernel config leaves `adapter_path` empty, run this after the subset
+adapter so the runner picks that latest completed adapter. Otherwise, set
+`adapter_path` in the kernel config to the adapter being explained.
+
+Then generate the reports:
+
+```bash
+uv run mlx-lora-make-report
+uv run mlx-lora-make-adapter-comparison
+uv run mlx-lora-make-kernel-report
+uv run mlx-lora-make-kernel-comparison
+```
+
+The adapter comparison report is the main cross-method table. Use it to compare:
+
+- `kmeans` vs. `random`: higher delta Pearson/sign accuracy and lower delta RMSE.
+- `kmeans+sign` vs. `kmeans`: little or no degradation from sign-only features.
+- `kmeans+sparse_random` vs. `kmeans`: similar quality with lower projection dim.
+- `kmeans+sparse_random+sign` vs. `kmeans+sparse_random`: little or no degradation.
+- every subset method vs. full fine-tuning: high adapter-score Pearson, low
+  adapter-score RMSE, and small mean delta gap.
+
+The kernel reports separately test whether LoRA-NTK features predict held-out
+adapter score deltas. After the first run works, repeat across multiple `<n>`
+values, datasets, and seeds.
 
 ## Prepare Data
 
@@ -45,7 +181,11 @@ Flags:
 - `--tokenizer-model` - tokenizer used by token-supervision filters.
 - `--base-model` - alias for `--tokenizer-model`, useful when matching training.
 
-The data config is the source of truth for the dataset source, split strategy, prompt/completion mapping, computed fields, source append, length filters, token-supervision filters, and output location. Each run writes `train.jsonl`, `valid.jsonl`, `test.jsonl`, and `metadata.json` under the configured output directory, usually `data/<dataset>/`.
+The data config is the source of truth for the dataset source, split strategy,
+prompt/completion mapping, computed fields, source append, length filters,
+token-supervision filters, and output location. Each run writes `train.jsonl`,
+`valid.jsonl`, `test.jsonl`, and `metadata.json` under the configured output
+directory, usually `data/<dataset>/`.
 
 To add a normal supervised dataset, add one YAML file under `configs/data/` with `source`, `split`, `mapping`, and optional `filters`. You should only need Python for cases that cannot be represented as row templates or source composition.
 
@@ -68,6 +208,9 @@ Flags:
 - `--skip-test` - skip the post-training `mlx_lm.lora --test` pass.
 - `--sample-selector` - Python file defining `select_samples(...)`.
 - `--max-examples` - value passed through to the selector as `max_example`.
+- `--selector-transformation` - feature transformation before selector clustering; repeatable, defaults to `identity`.
+- `--selector-projection` - feature projection before selector clustering; defaults to `identity`.
+- `--selector-projection-components` - output dimension for projections that need one.
 
 Run-time subsampling keeps the full prepared dataset untouched and materializes
 the selected train split under the run directory:
@@ -75,8 +218,11 @@ the selected train split under the run directory:
 ```bash
 uv run mlx-lora-run \
   --config configs/dolly.yaml \
-  --sample-selector selection/lora_ntk_kmeans.py \
-  --max-examples 2000
+  --sample-selector selectors/lora_ntk_kmeans.py \
+  --max-examples 2000 \
+  --selector-transformation sign \
+  --selector-projection sparse_random \
+  --selector-projection-components 1024
 ```
 
 `--sample-selector` must point to a Python module defining:
@@ -90,15 +236,20 @@ def select_samples(rows, max_example=None, context=None):
 - return value must be an iterable of selected row objects.
 - `--max-examples` is optional and passed through as `max_example`.
 - `context`, when accepted by the selector, includes `source_data_dir`,
-  `run_dir`, `sampled_data_dir`, `base_model`, `mlx_args`, and `seed`.
+  `run_dir`, `sampled_data_dir`, `base_model`, `mlx_args`, `seed`,
+  `selector_transformations`, `selector_projection`, and
+  `selector_projection_components`.
 - if `--max-examples` is omitted, training uses the full selector output.
 
-The default selector (`selection/default.py`) returns rows unchanged.
+The identity selector (`selectors/identity.py`) returns rows unchanged.
 When a selector is used, the run writes a materialized sampled split under
 `results/runs/<run_name>/data/train.jsonl` and copies `valid.jsonl`/`test.jsonl`
 for the same run.
 
-The LoRA-NTK k-means selector extracts gradient features from the configured base model and LoRA settings, clusters the train split into `--max-examples` clusters, and keeps the nearest real row to each center.
+The LoRA-NTK k-means selector extracts gradient features from the configured
+base model and LoRA settings, applies the requested feature transformations and
+projection, clusters the train split into `--max-examples` clusters, and keeps
+the nearest real row to each center.
 
 The run writes:
 
@@ -157,8 +308,12 @@ Flags:
 - `--seed` - seed used when subsampling the split.
 - `--base-model` - optional base model override.
 - `--output-dir` - explicit output directory.
+- `--method` - optional subset method label used by aggregate reports.
 
-This scores the same held-out examples with the base model, full adapter, and subset adapter, then compares `full_score_delta` against `subset_score_delta`. Outputs are written under `results/comparisons/` by default.
+This scores the same held-out examples with the base model, full adapter, and
+subset adapter, then compares both `full_score_delta` vs. `subset_score_delta`
+and full adapter scores vs. subset adapter scores. Outputs are written under
+`results/comparisons/` by default.
 
 ## Kernel Experiments
 
@@ -235,6 +390,20 @@ Flags:
 
 - `--output-root` - kernel results root.
 - `--output` - markdown output path.
+
+### Adapter Comparison Report
+
+```bash
+uv run mlx-lora-make-adapter-comparison
+```
+
+Flags:
+
+- `--output-root` - results root containing `comparisons/` and `runs/`.
+- `--output` - markdown output path.
+- `--datasets` - dataset names to include.
+- `--methods` - subset method labels to include.
+- `--base-models` - base models to include.
 
 ### Kernel Comparison Report
 

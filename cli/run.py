@@ -64,7 +64,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Optional path to a Python selector module defining "
-            "`select_samples(rows, max_example=None)`."
+            "`select_samples(rows, max_example=None, context=None)`."
         ),
     )
     parser.add_argument(
@@ -72,6 +72,29 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Optional max-examples value passed to `select_samples`.",
+    )
+    parser.add_argument(
+        "--selector-transformation",
+        action="append",
+        default=None,
+        help=(
+            "Feature transformation applied before selector clustering. "
+            "Can be passed multiple times. Defaults to identity."
+        ),
+    )
+    parser.add_argument(
+        "--selector-projection",
+        default="identity",
+        help=(
+            "Feature projection applied before selector clustering. "
+            "Use sparse_random for SparseRandomProjection. Defaults to identity."
+        ),
+    )
+    parser.add_argument(
+        "--selector-projection-components",
+        type=int,
+        default=None,
+        help="Output dimension for selector projections that need one.",
     )
     return parser.parse_args()
 
@@ -108,6 +131,13 @@ def main() -> None:
                 "base_model": config.base_model,
                 "mlx_args": config.mlx_args,
                 "seed": config.mlx_args.get("seed", 42),
+                "selector_transformations": (
+                    args.selector_transformation or ["identity"]
+                ),
+                "selector_projection": args.selector_projection,
+                "selector_projection_components": (
+                    args.selector_projection_components
+                ),
             },
         )
         metadata["sampling"] = sampling_meta

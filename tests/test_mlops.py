@@ -198,7 +198,7 @@ def test_prepare_sampled_data_dir_default_selector_returns_all(tmp_path: Path) -
     sampled_dir, metadata = prepare_sampled_data_dir(
         source_data_dir=source_dir,
         run_dir=tmp_path / "run",
-        sample_selector="selection/default.py",
+        sample_selector="selectors/identity.py",
         max_example=1,
     )
     sampled_rows = [
@@ -309,6 +309,10 @@ def test_run_cli_dry_run_applies_selector_max_examples(
     assert [row["id"] for row in sampled_rows] == [0, 1]
     assert metadata["sampling"]["max_example"] == 2
     assert metadata["sampling"]["selected_train_examples"] == 2
+    assert metadata["sampling"]["selector_context"]["selector_projection"] == "identity"
+    assert metadata["sampling"]["selector_context"]["selector_transformations"] == [
+        "identity"
+    ]
     assert summary["data_dir"] == metadata["train_data_dir"]
     assert summary["sampling"] == metadata["sampling"]
 

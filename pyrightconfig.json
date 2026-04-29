@@ -2,12 +2,16 @@
   "include": [
     "cli",
     "kernel",
-    "selection",
+    "selectors",
+    "projection",
+    "transformations",
     "tests",
     "data_prep.py",
     "eval.py",
+    "feature_pipeline.py",
     "mlops.py",
-    "paths.py"
+    "paths.py",
+    "selector_algorithms.py"
   ],
   "typeCheckingMode": "standard",
   "reportAny": "none",

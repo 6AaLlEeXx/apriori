@@ -62,6 +62,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional output directory. Defaults to results/comparisons/<run>.",
     )
+    parser.add_argument(
+        "--method",
+        default=None,
+        help="Optional method label for reporting.",
+    )
     return parser.parse_args()
 
 
@@ -76,6 +81,9 @@ def main() -> None:
         data_dir=config.data_dir,
         full_adapter_path=args.full_adapter,
         subset_adapter_path=args.subset_adapter,
+        dataset_name=config.dataset_name,
+        task=config.task,
+        method=args.method,
         split=args.split,
         limit=args.limit,
         seed=args.seed,
