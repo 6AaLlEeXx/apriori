@@ -5,9 +5,9 @@ import json
 
 import pytest
 
-from lora.kernel.config import KernelRunConfig
-from lora.kernel.run import validate_kernel_run_inputs
-from lora.kernel.scoring import tokenize_pair
+from kernel.config import KernelRunConfig
+from kernel.run import validate_kernel_run_inputs
+from kernel.scoring import tokenize_pair
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, str]]) -> None:

@@ -8,8 +8,7 @@ import json
 import numpy as np
 from numpy.typing import NDArray
 
-from lora.kernel.backends import create_feature_backend
-from lora.kernel.config import (
+from kernel.config import (
     KernelRunConfig,
     KernelRunPaths,
     build_kernel_metadata,
@@ -20,17 +19,18 @@ from lora.kernel.config import (
     save_kernel_run_config,
     write_json,
 )
-from lora.kernel.data import PairRecord, load_pair_split, maybe_subset_pairs
-from lora.kernel.krr import (
+from kernel.data import PairRecord, load_pair_split, maybe_subset_pairs
+from kernel.features import create_feature_backend
+from kernel.krr import (
     fit_krr_dual,
     fit_krr_nystrom,
     predict_krr_dual,
     predict_krr_nystrom,
     select_landmarks,
 )
-from lora.kernel.metrics import evaluate_predictions
-from lora.kernel.scoring import ModelScorer
-from lora.paths import resolve_project_path
+from kernel.metrics import evaluate_predictions
+from kernel.scoring import ModelScorer
+from paths import resolve_project_path
 
 
 Array = NDArray[Any]

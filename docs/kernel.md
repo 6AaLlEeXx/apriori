@@ -11,7 +11,7 @@ The kernel runner is dataset-agnostic at the prepared-data level: any dataset un
 
 ## Generate Kernel Configs
 
-Generate one frozen-pair config from a data recipe:
+Generate one LoRA-NTK config from a data recipe:
 
 ```bash
 uv run mlx-lora-generate-kernel-configs \
@@ -32,12 +32,12 @@ uv run mlx-lora-generate-kernel-configs \
   --base-model mlx-community/Qwen2.5-1.5B-Instruct-4bit
 ```
 
-Generate both the cheap frozen baseline and the experimental LoRA-NTK backend:
+Generate a config with an explicit backend:
 
 ```bash
 uv run mlx-lora-generate-kernel-configs \
   --data-config configs/data/sql/spider.yaml \
-  --backends frozen_pair lora_ntk
+  --backends lora_ntk
 ```
 
 Preview without writing files:
@@ -56,7 +56,7 @@ Preview a run name:
 
 ```bash
 uv run mlx-lora-run-kernel \
-  --config configs/kernel/generated/alpaca_frozen_pair.yaml \
+  --config configs/kernel/generated/alpaca_lora_ntk.yaml \
   --dry-run
 ```
 
@@ -64,14 +64,14 @@ Run an experiment:
 
 ```bash
 uv run mlx-lora-run-kernel \
-  --config configs/kernel/generated/alpaca_frozen_pair.yaml
+  --config configs/kernel/generated/alpaca_lora_ntk.yaml
 ```
 
 Override the config's model for one run:
 
 ```bash
 uv run mlx-lora-run-kernel \
-  --config configs/kernel/generated/alpaca_frozen_pair.yaml \
+  --config configs/kernel/generated/alpaca_lora_ntk.yaml \
   --base-model mlx-community/Qwen2.5-1.5B-Instruct-4bit
 ```
 
@@ -96,7 +96,7 @@ Filter the comparison table:
 ```bash
 uv run mlx-lora-make-kernel-comparison \
   --datasets dolly gsm8k spider \
-  --backends frozen_pair lora_ntk \
+  --backends lora_ntk \
   --base-models mlx-community/SmolLM2-1.7B-Instruct
 ```
 
@@ -108,7 +108,6 @@ The comparison report groups runs by base model, dataset, and backend. For each 
 - Prepared data must contain non-empty `prompt` and `completion` values.
 - The tokenizer must expose `apply_chat_template`; plain tokenizer fallback is not implemented yet.
 - `adapter_path` must resolve to a LoRA/DoRA adapter directory with `adapter_config.json`.
-- `backend=frozen_pair` uses mean-pooled final hidden states over the completion span.
 - `backend=lora_ntk` computes score Jacobians with respect to inserted LoRA parameters and should be kept to small subsets.
 
 ## Outputs

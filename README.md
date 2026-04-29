@@ -10,6 +10,18 @@ This directory is a standalone UV project for local MLX-LM LoRA work:
 
 All relative paths in configs and CLIs are resolved against this project directory, not against the parent repository.
 
+## Codebase Layout
+
+The codebase is intentionally flat. Top-level modules handle shared workflows, while small packages keep CLI, kernel, and selection concerns separate:
+
+- `cli/` contains command-line entrypoints.
+- `kernel/` contains LoRA-NTK feature extraction, scoring, KRR experiments, adapter comparison, and reports.
+- `selection/` contains training-set selectors, including LoRA-NTK k-means.
+- `data_prep.py` prepares raw datasets into prompt/completion JSONL splits.
+- `mlops.py` manages LoRA run configs, commands, logs, metadata, and summaries.
+- `eval.py` contains task-level prediction metrics.
+- `paths.py` centralizes project-relative path handling.
+
 ## Setup
 
 ```bash
@@ -22,23 +34,18 @@ The MLX dependencies are installed only on macOS. Dataset preparation uses Huggi
 ## Prepare Data
 
 ```bash
-uv run mlx-lora-prepare-data --config configs/data/dolly.yaml
-uv run mlx-lora-prepare-data --config configs/data/gsm8k.yaml
-uv run mlx-lora-prepare-data --config configs/data/samsum.yaml
-uv run mlx-lora-prepare-data --config configs/data/sql_create_context.yaml
-uv run mlx-lora-prepare-data --config configs/data/conala.yaml
-uv run mlx-lora-prepare-data --config configs/data/conala_mined.yaml
+uv run mlx-lora-prepare-data --config <data-config.yaml>
 ```
 
-Each config writes `train.jsonl`, `valid.jsonl`, `test.jsonl`, and `metadata.json` under `data/<dataset>/`. The data prep runner supports Hugging Face datasets plus local JSONL, JSON, and CSV sources. Prompt/completion mapping, computed fields, split strategy, source append, length filters, and optional token-supervision filtering live in YAML.
+Flags:
 
-For Dolly, pass the same model used for training so truncation checks use the right chat template:
+- `--config` - required data recipe, for example `configs/data/dolly.yaml`.
+- `--output-dir` - override the config's `output_dir`.
+- `--seed` - override the split/subsample seed.
+- `--tokenizer-model` - tokenizer used by token-supervision filters.
+- `--base-model` - alias for `--tokenizer-model`, useful when matching training.
 
-```bash
-uv run mlx-lora-prepare-data \
-  --config configs/data/dolly.yaml \
-  --base-model mlx-community/Qwen2.5-1.5B-Instruct-4bit
-```
+The data config is the source of truth for the dataset source, split strategy, prompt/completion mapping, computed fields, source append, length filters, token-supervision filters, and output location. Each run writes `train.jsonl`, `valid.jsonl`, `test.jsonl`, and `metadata.json` under the configured output directory, usually `data/<dataset>/`.
 
 To add a normal supervised dataset, add one YAML file under `configs/data/` with `source`, `split`, `mapping`, and optional `filters`. You should only need Python for cases that cannot be represented as row templates or source composition.
 
@@ -46,53 +53,52 @@ To add a normal supervised dataset, add one YAML file under `configs/data/` with
 
 ## Train Adapters
 
-Preview a run:
-
-```bash
-uv run mlx-lora-run --config configs/dolly.yaml --dry-run
-```
-
 Train:
 
 ```bash
 uv run mlx-lora-run --config configs/dolly.yaml
 ```
 
-Use another MLX-LM-compatible model without editing the config:
+Flags:
+
+- `--config` - required LoRA run config.
+- `--run-name` - explicit run name; defaults to a timestamped generated name.
+- `--base-model` - override the config's `base_model`.
+- `--dry-run` - create metadata/commands and print paths without training.
+- `--skip-test` - skip the post-training `mlx_lm.lora --test` pass.
+- `--sample-selector` - Python file defining `select_samples(...)`.
+- `--max-examples` - value passed through to the selector as `max_example`.
+
+Run-time subsampling keeps the full prepared dataset untouched and materializes
+the selected train split under the run directory:
 
 ```bash
 uv run mlx-lora-run \
   --config configs/dolly.yaml \
-  --base-model mlx-community/Qwen2.5-1.5B-Instruct-4bit
-```
-
-Run-time subsampling (keep full `data/<dataset>/train.jsonl`, choose subset per run):
-
-```bash
-uv run mlx-lora-run \
-  --run-name some-name \
-  --config configs/dolly.yaml \
-  --base-model mlx-community/Qwen3.5-9B-Instruct-4bit \
-  --sample-selector selectors/default_selector.py \
+  --sample-selector selection/lora_ntk_kmeans.py \
   --max-examples 2000
 ```
 
 `--sample-selector` must point to a Python module defining:
 
 ```python
-def select_samples(rows, max_example=None):
+def select_samples(rows, max_example=None, context=None):
     ...
 ```
 
 - `rows` is the full parsed `train.jsonl` list of JSON objects.
 - return value must be an iterable of selected row objects.
 - `--max-examples` is optional and passed through as `max_example`.
-- if omitted, training uses the full selector output.
+- `context`, when accepted by the selector, includes `source_data_dir`,
+  `run_dir`, `sampled_data_dir`, `base_model`, `mlx_args`, and `seed`.
+- if `--max-examples` is omitted, training uses the full selector output.
 
-The default selector (`selectors/default_selector.py`) returns rows unchanged.
+The default selector (`selection/default.py`) returns rows unchanged.
 When a selector is used, the run writes a materialized sampled split under
 `results/runs/<run_name>/data/train.jsonl` and copies `valid.jsonl`/`test.jsonl`
 for the same run.
+
+The LoRA-NTK k-means selector extracts gradient features from the configured base model and LoRA settings, clusters the train split into `--max-examples` clusters, and keeps the nearest real row to each center.
 
 The run writes:
 
@@ -115,35 +121,78 @@ results/
 
 ```bash
 uv run mlx-lora-eval-preds \
-  --config configs/gsm8k.yaml \
-  --predictions results/runs/<run_name>/predictions.jsonl \
-  --run-dir results/runs/<run_name>
+  --predictions <predictions.jsonl> \
+  --config <training-config.yaml>
 ```
+
+Flags:
+
+- `--predictions` - required JSONL with `prediction` and `reference` fields.
+- `--config` - optional training config whose `evaluation` block is used.
+- `--metric` - metric to compute; can be passed multiple times.
+- `--primary-metric` - metric reported as `metric_name`/`metric_value`.
+- `--run-dir` - writes to `<run-dir>/eval.json` unless `--output` is set.
+- `--output` - explicit evaluation JSON path.
 
 The evaluator reads metric names from the training config's `evaluation` block. Built-in metrics include `exact_match`, `token_f1`, `gsm8k_answer_accuracy`, `sql_exact_match`, `rouge_l_f1`, and `conala_exact_match`.
 
-## Kernel Experiments
+## Compare Full vs Subset Adapters
 
-Preview:
+Compare an adapter trained on full data with one trained on a selected subset:
 
 ```bash
-uv run mlx-lora-run-kernel --config configs/kernel/dolly_frozen_pair.yaml --dry-run
+uv run mlx-lora-compare-adapters \
+  --config <training-config.yaml> \
+  --full-adapter <full-adapter-dir> \
+  --subset-adapter <subset-adapter-dir>
 ```
+
+Flags:
+
+- `--config` - required training config defining `data_dir` and `base_model`.
+- `--full-adapter` - required adapter trained on full data.
+- `--subset-adapter` - required adapter trained on selected data.
+- `--split` - `train`, `valid`, or `test`; defaults to `test`.
+- `--limit` - max scored examples; use `0` for all selected split records.
+- `--seed` - seed used when subsampling the split.
+- `--base-model` - optional base model override.
+- `--output-dir` - explicit output directory.
+
+This scores the same held-out examples with the base model, full adapter, and subset adapter, then compares `full_score_delta` against `subset_score_delta`. Outputs are written under `results/comparisons/` by default.
+
+## Kernel Experiments
 
 Run:
 
 ```bash
-uv run mlx-lora-run-kernel --config configs/kernel/dolly_frozen_pair.yaml
 uv run mlx-lora-run-kernel --config configs/kernel/dolly_lora_ntk.yaml
 ```
 
-Use the same model override for kernel runs:
+Flags:
+
+- `--config` - required kernel run config.
+- `--run-name` - explicit run name; defaults to a timestamped generated name.
+- `--base-model` - override the config's `base_model`.
+- `--dry-run` - resolve config and print the generated run name.
+
+Generate kernel configs from data/training configs:
 
 ```bash
-uv run mlx-lora-run-kernel \
-  --config configs/kernel/dolly_frozen_pair.yaml \
-  --base-model mlx-community/Qwen2.5-1.5B-Instruct-4bit
+uv run mlx-lora-generate-kernel-configs --data-config <data-config.yaml>
 ```
+
+Generator flags:
+
+- `--data-config` - data recipe to convert; can be passed multiple times.
+- `--all-data-configs` - generate configs for every recipe under `configs/data/`.
+- `--training-config` - optional LoRA config used when its dataset matches.
+- `--base-model` - override generated `base_model`.
+- `--backends` - backend names; currently defaults to `lora_ntk`.
+- `--output-dir` - generated config directory.
+- `--force` - overwrite existing generated configs.
+- `--dry-run` - print planned paths without writing.
+
+Use any config under `configs/kernel/`. The same model override pattern works for kernel runs.
 
 If a kernel config leaves `adapter_path` empty, the runner chooses the latest completed adapter for the same dataset and base model from `results/runs/*/summary.json`.
 
@@ -163,16 +212,52 @@ results/kernel/runs/<run_name>/
 
 ## Reports
 
+Reports are written to `reports/` by default.
+
+### LoRA Run Report
+
 ```bash
 uv run mlx-lora-make-report
+```
+
+Flags:
+
+- `--input-root` - root containing tracked LoRA runs.
+- `--output` - markdown output path.
+
+### Kernel Run Report
+
+```bash
 uv run mlx-lora-make-kernel-report
+```
+
+Flags:
+
+- `--output-root` - kernel results root.
+- `--output` - markdown output path.
+
+### Kernel Comparison Report
+
+```bash
 uv run mlx-lora-make-kernel-comparison
 ```
 
-Reports are written to `reports/`.
+Flags:
+
+- `--output-root` - kernel results root.
+- `--output` - markdown output path.
+- `--datasets` - dataset names to include.
+- `--backends` - backend names to include.
+- `--base-models` - base models to include.
 
 ## Tests
 
 ```bash
 uv run pytest
 ```
+
+Useful pytest selectors/flags:
+
+- `tests/<file>.py` - run one test file.
+- `-k <pattern>` - run matching tests.
+- `-q` - quieter output.

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_DATA_ROOT = "data"
 DEFAULT_RESULTS_ROOT = "results"
 DEFAULT_KERNEL_RESULTS_ROOT = "results/kernel"

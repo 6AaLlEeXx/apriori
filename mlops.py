@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 import importlib.util
+import inspect
 from pathlib import Path
 from typing import Any
 import json
@@ -11,7 +12,7 @@ import shlex
 import shutil
 import subprocess
 
-from lora.paths import (
+from paths import (
     DEFAULT_RESULTS_ROOT,
     resolve_existing_project_path,
     resolve_project_path,
@@ -498,12 +499,36 @@ def _load_sample_selector(selector_path: str | Path) -> Any:
     return module.select_samples
 
 
+def _call_sample_selector(
+    selector: Any,
+    rows: list[dict[str, Any]],
+    *,
+    max_example: int | None,
+    context: dict[str, Any],
+) -> Any:
+    try:
+        signature = inspect.signature(selector)
+    except (TypeError, ValueError):
+        return selector(rows, max_example=max_example)
+
+    parameters = signature.parameters.values()
+    accepts_context = any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        or parameter.name == "context"
+        for parameter in parameters
+    )
+    if accepts_context:
+        return selector(rows, max_example=max_example, context=context)
+    return selector(rows, max_example=max_example)
+
+
 def prepare_sampled_data_dir(
     *,
     source_data_dir: str | Path,
     run_dir: str | Path,
     sample_selector: str | Path,
     max_example: int | None = None,
+    selector_context: dict[str, Any] | None = None,
 ) -> tuple[Path, dict[str, Any]]:
     source_data_dir = resolve_project_path(source_data_dir)
     run_dir = Path(run_dir)
@@ -520,7 +545,18 @@ def prepare_sampled_data_dir(
 
     rows = load_jsonl_records(train_path)
     selector = _load_sample_selector(sample_selector)
-    selected_rows = selector(rows, max_example=max_example)
+    context = {
+        "source_data_dir": str(source_data_dir),
+        "run_dir": str(run_dir),
+        "sampled_data_dir": str(sampled_data_dir),
+        **dict(selector_context or {}),
+    }
+    selected_rows = _call_sample_selector(
+        selector,
+        rows,
+        max_example=max_example,
+        context=context,
+    )
     if selected_rows is None:
         raise ValueError("Selector returned None; expected iterable of rows.")
     selected_rows = list(selected_rows)
@@ -533,6 +569,7 @@ def prepare_sampled_data_dir(
         "original_train_examples": len(rows),
         "selected_train_examples": len(selected_rows),
         "sampled_data_dir": str(sampled_data_dir),
+        "selector_context": context,
     }
     return sampled_data_dir, metadata
 

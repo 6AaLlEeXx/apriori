@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from lora.kernel.metrics import evaluate_predictions
+from kernel.metrics import evaluate_predictions
 
 
 def test_evaluate_predictions_returns_expected_keys() -> None:

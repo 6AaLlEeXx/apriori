@@ -2,9 +2,9 @@
 
 This standalone UV project keeps LoRA training lightweight:
 
-- `src/lora/cli/run.py` prepares a stable run directory, launches `mlx_lm.lora`, and captures MLX logs to local files plus `metrics.jsonl`.
-- `src/lora/cli/eval_predictions.py` scores a prediction JSONL file and stores `eval.json` inside a run.
-- `src/lora/cli/make_report.py` builds a markdown table across all runs.
+- `cli/run.py` prepares a stable run directory, launches `mlx_lm.lora`, and captures MLX logs to local files plus `metrics.jsonl`.
+- `cli/eval_predictions.py` scores a prediction JSONL file and stores `eval.json` inside a run.
+- `cli/make_report.py` builds a markdown table across all runs.
 
 ## Layout
 

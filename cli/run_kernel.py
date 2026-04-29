@@ -8,8 +8,8 @@ import sys
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from lora.kernel.config import build_kernel_run_name, load_kernel_run_config
-from lora.kernel.run import run_kernel_experiment
+from kernel.config import build_kernel_run_name, load_kernel_run_config
+from kernel.run import run_kernel_experiment
 
 
 def parse_args() -> argparse.Namespace:

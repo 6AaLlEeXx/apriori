@@ -7,8 +7,8 @@ import sys
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from lora.kernel.report import make_kernel_comparison_report
-from lora.paths import DEFAULT_KERNEL_RESULTS_ROOT, DEFAULT_REPORTS_ROOT
+from kernel.report import make_kernel_comparison_report
+from paths import DEFAULT_KERNEL_RESULTS_ROOT, DEFAULT_REPORTS_ROOT
 
 
 def parse_args() -> argparse.Namespace:

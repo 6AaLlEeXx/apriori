@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from lora.kernel.generate_configs import (
+from kernel.generate_configs import (
     plan_generated_kernel_configs,
     write_generated_kernel_configs,
 )
@@ -45,15 +45,15 @@ def test_generate_kernel_config_from_data_config(tmp_path: Path) -> None:
     )
     paths = write_generated_kernel_configs(planned)
 
-    assert paths == [output_dir / "toy_frozen_pair.yaml"]
+    assert paths == [output_dir / "toy_lora_ntk.yaml"]
     payload = yaml.safe_load(paths[0].read_text())
     assert payload["dataset_name"] == "toy"
     assert payload["task"] == "exact_match"
     assert payload["base_model"] == "models/test"
     assert payload["data_dir"] == "data/toy"
-    assert payload["backend"] == "frozen_pair"
+    assert payload["backend"] == "lora_ntk"
     assert payload["target"] == "score_delta"
-    assert payload["backend_args"] == {"pooling": "completion_mean"}
+    assert payload["backend_args"] == {"leaf_filter": "lora_b_only"}
     assert "data" in payload["source_config"]
 
 
@@ -90,6 +90,19 @@ def test_generate_kernel_config_uses_cli_model_before_training_config(
     assert payload["source_config"]["training"].endswith("train.yaml")
 
 
+def test_generate_kernel_config_rejects_unsupported_backend(tmp_path: Path) -> None:
+    data_config = tmp_path / "toy.yaml"
+    _write_data_config(data_config)
+
+    with pytest.raises(ValueError, match="Unsupported kernel backend"):
+        plan_generated_kernel_configs(
+            data_configs=[data_config],
+            base_model="models/test",
+            backends=["unsupported_backend"],
+            output_dir=tmp_path / "generated",
+        )
+
+
 def test_generate_kernel_config_refuses_overwrite_without_force(
     tmp_path: Path,
 ) -> None:
@@ -121,7 +134,7 @@ def test_generate_kernel_config_dry_run_does_not_write(tmp_path: Path) -> None:
 
     paths = write_generated_kernel_configs(planned, dry_run=True)
 
-    assert paths == [output_dir / "toy_frozen_pair.yaml"]
+    assert paths == [output_dir / "toy_lora_ntk.yaml"]
     assert not paths[0].exists()
 
 
@@ -144,6 +157,6 @@ def test_generate_kernel_config_uses_data_dir_name_for_name_collisions(
     )
 
     assert [item.output_path.name for item in planned] == [
-        "toy_frozen_pair.yaml",
-        "toy_extra_frozen_pair.yaml",
+        "toy_lora_ntk.yaml",
+        "toy_extra_lora_ntk.yaml",
     ]

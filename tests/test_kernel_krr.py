@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from lora.kernel.krr import (
+from kernel.krr import (
     fit_krr_dual,
     fit_krr_nystrom,
     predict_krr_dual,

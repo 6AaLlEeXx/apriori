@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
-from lora.kernel.report import make_kernel_comparison_report
+from kernel.report import make_kernel_comparison_report
 
 
 def _write_run(
@@ -57,24 +57,24 @@ def test_make_kernel_comparison_report_selects_largest_train_split(
     output_root = tmp_path / "kernel"
     _write_run(
         output_root,
-        run_name="small-frozen",
+        run_name="small-ntk",
         dataset_name="dolly",
-        backend="frozen_pair",
+        backend="lora_ntk",
         train_n=16,
         test_delta_pearson=0.9,
     )
     _write_run(
         output_root,
-        run_name="large-frozen",
+        run_name="large-ntk",
         dataset_name="dolly",
-        backend="frozen_pair",
+        backend="lora_ntk",
         train_n=256,
         test_delta_pearson=0.7,
     )
     _write_run(
         output_root,
-        run_name="ntk-run",
-        dataset_name="dolly",
+        run_name="gsm8k-ntk-run",
+        dataset_name="gsm8k",
         backend="lora_ntk",
         train_n=64,
         test_delta_pearson=0.94,
@@ -85,17 +85,13 @@ def test_make_kernel_comparison_report_selects_largest_train_split(
         output_root=output_root,
         output_path=output_path,
         datasets=["dolly", "gsm8k"],
-        backends=["frozen_pair", "lora_ntk"],
+        backends=["lora_ntk"],
     )
 
     report = output_path.read_text()
-    assert "`large-frozen`" in report
-    assert "`small-frozen`" not in report
-    assert "`ntk-run`" in report
-    assert (
-        "| SmolLM2-1.7B-Instruct | gsm8k | frozen_pair | - | - | - | - | - | - | - | missing |"
-        in report
-    )
+    assert "`large-ntk`" in report
+    assert "`small-ntk`" not in report
+    assert "`gsm8k-ntk-run`" in report
 
 
 def test_kernel_comparison_report_auto_discovers_completed_runs(
@@ -106,7 +102,7 @@ def test_kernel_comparison_report_auto_discovers_completed_runs(
         output_root,
         run_name="dolly-run",
         dataset_name="dolly",
-        backend="frozen_pair",
+        backend="lora_ntk",
         train_n=16,
         test_delta_pearson=0.8,
     )
@@ -136,7 +132,7 @@ def test_kernel_comparison_report_keeps_base_models_separate(
         output_root,
         run_name="model-a-run",
         dataset_name="dolly",
-        backend="frozen_pair",
+        backend="lora_ntk",
         train_n=16,
         test_delta_pearson=0.8,
         base_model="org/model-a",
@@ -145,7 +141,7 @@ def test_kernel_comparison_report_keeps_base_models_separate(
         output_root,
         run_name="model-b-run",
         dataset_name="dolly",
-        backend="frozen_pair",
+        backend="lora_ntk",
         train_n=16,
         test_delta_pearson=0.9,
         base_model="org/model-b",
@@ -157,8 +153,8 @@ def test_kernel_comparison_report_keeps_base_models_separate(
     report = output_path.read_text()
     assert "`model-a-run`" in report
     assert "`model-b-run`" in report
-    assert "| model-a | dolly | frozen_pair |" in report
-    assert "| model-b | dolly | frozen_pair |" in report
+    assert "| model-a | dolly | lora_ntk |" in report
+    assert "| model-b | dolly | lora_ntk |" in report
 
 
 def test_kernel_comparison_report_filters_dataset_backend_and_model(
@@ -169,7 +165,7 @@ def test_kernel_comparison_report_filters_dataset_backend_and_model(
         output_root,
         run_name="model-a-dolly",
         dataset_name="dolly",
-        backend="frozen_pair",
+        backend="lora_ntk",
         train_n=16,
         test_delta_pearson=0.8,
         base_model="org/model-a",
@@ -178,7 +174,7 @@ def test_kernel_comparison_report_filters_dataset_backend_and_model(
         output_root,
         run_name="model-b-dolly",
         dataset_name="dolly",
-        backend="frozen_pair",
+        backend="lora_ntk",
         train_n=16,
         test_delta_pearson=0.9,
         base_model="org/model-b",
@@ -189,7 +185,7 @@ def test_kernel_comparison_report_filters_dataset_backend_and_model(
         output_root=output_root,
         output_path=output_path,
         datasets=["dolly"],
-        backends=["frozen_pair"],
+        backends=["lora_ntk"],
         base_models=["org/model-a"],
     )
 

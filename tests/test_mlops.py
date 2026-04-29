@@ -4,9 +4,9 @@ from pathlib import Path
 import json
 import sys
 
-from lora.cli.run import main as run_cli_main
-from lora.eval import evaluate_predictions
-from lora.mlops import (
+from cli.run import main as run_cli_main
+from eval import evaluate_predictions
+from mlops import (
     LoraRunConfig,
     RunPaths,
     build_mlx_config_payload,
@@ -198,7 +198,7 @@ def test_prepare_sampled_data_dir_default_selector_returns_all(tmp_path: Path) -
     sampled_dir, metadata = prepare_sampled_data_dir(
         source_data_dir=source_dir,
         run_dir=tmp_path / "run",
-        sample_selector="selectors/default_selector.py",
+        sample_selector="selection/default.py",
         max_example=1,
     )
     sampled_rows = [
@@ -206,6 +206,39 @@ def test_prepare_sampled_data_dir_default_selector_returns_all(tmp_path: Path) -
     ]
     assert sampled_rows == rows
     assert metadata["selected_train_examples"] == 2
+
+
+def test_prepare_sampled_data_dir_passes_selector_context(tmp_path: Path) -> None:
+    source_dir = tmp_path / "data"
+    source_dir.mkdir(parents=True)
+    rows = [{"prompt": f"p{i}", "completion": f"c{i}"} for i in range(3)]
+    source_dir.joinpath("train.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n"
+    )
+    selector_path = tmp_path / "selector.py"
+    selector_path.write_text(
+        "\n".join(
+            [
+                "def select_samples(rows, max_example=None, context=None):",
+                "    assert context['purpose'] == 'test'",
+                "    return rows[:context['limit']]",
+            ]
+        )
+        + "\n"
+    )
+
+    sampled_dir, metadata = prepare_sampled_data_dir(
+        source_data_dir=source_dir,
+        run_dir=tmp_path / "run",
+        sample_selector=selector_path,
+        selector_context={"purpose": "test", "limit": 2},
+    )
+
+    sampled_rows = [
+        json.loads(line) for line in sampled_dir.joinpath("train.jsonl").read_text().splitlines()
+    ]
+    assert [row["prompt"] for row in sampled_rows] == ["p0", "p1"]
+    assert metadata["selector_context"]["purpose"] == "test"
 
 
 def test_run_cli_dry_run_applies_selector_max_examples(

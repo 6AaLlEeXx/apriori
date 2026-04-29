@@ -9,7 +9,7 @@ import mlx.core as mx
 import mlx.nn as nn
 from mlx_lm import load
 
-from lora.kernel.data import PairRecord
+from kernel.data import PairRecord
 
 
 @dataclass(frozen=True)

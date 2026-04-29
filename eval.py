@@ -7,7 +7,7 @@ from typing import Any, Callable
 import json
 import re
 
-from lora.paths import resolve_project_path
+from paths import resolve_project_path
 
 
 MetricFunction = Callable[[str, str], float]

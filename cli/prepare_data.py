@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from lora.data_prep import load_data_prep_config, prepare_dataset_from_config
+from data_prep import load_data_prep_config, prepare_dataset_from_config
 
 
 def parse_args() -> argparse.Namespace:

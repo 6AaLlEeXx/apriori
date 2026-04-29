@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-import lora.data_prep as data_prep
-from lora.data_prep import (
+import data_prep as data_prep
+from data_prep import (
     TokenSupervisionFilter,
     WriteFilters,
     build_record_formatter,

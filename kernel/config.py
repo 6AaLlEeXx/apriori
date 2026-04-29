@@ -7,7 +7,7 @@ from typing import Any
 import json
 import re
 
-from lora.paths import (
+from paths import (
     DEFAULT_KERNEL_RESULTS_ROOT,
     DEFAULT_RESULTS_ROOT,
     resolve_existing_project_path,
@@ -18,6 +18,9 @@ try:
     import yaml
 except ImportError:  # pragma: no cover - optional dependency
     yaml = None
+
+
+SUPPORTED_KERNEL_BACKENDS = {"lora_ntk"}
 
 
 @dataclass
@@ -36,7 +39,7 @@ class KernelRunConfig:
     data_dir: str = "data/dolly"
     adapter_path: str = ""
     output_root: str = DEFAULT_KERNEL_RESULTS_ROOT
-    backend: str = "frozen_pair"
+    backend: str = "lora_ntk"
     target: str = "score_delta"
     seed: int = 42
     train_limit: int = 128
@@ -147,6 +150,12 @@ def load_kernel_run_config(path: str | Path) -> KernelRunConfig:
         for key, value in dict(merged.get("source_config", {})).items()
     }
     merged["run_tags"] = [str(tag) for tag in merged.get("run_tags", [])]
+    if str(merged["backend"]) not in SUPPORTED_KERNEL_BACKENDS:
+        supported = ", ".join(sorted(SUPPORTED_KERNEL_BACKENDS))
+        raise ValueError(
+            f"Unsupported kernel backend `{merged['backend']}`. "
+            f"Supported backends: {supported}"
+        )
     return KernelRunConfig(**merged)
 
 

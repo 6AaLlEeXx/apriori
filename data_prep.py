@@ -8,7 +8,7 @@ from pathlib import Path
 from string import Formatter
 from typing import Any, Callable
 
-from lora.paths import resolve_existing_project_path, resolve_project_path
+from paths import resolve_existing_project_path, resolve_project_path
 
 try:
     import yaml

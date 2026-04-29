@@ -1,5 +1,14 @@
 {
-  "include": ["src", "tests"],
+  "include": [
+    "cli",
+    "kernel",
+    "selection",
+    "tests",
+    "data_prep.py",
+    "eval.py",
+    "mlops.py",
+    "paths.py"
+  ],
   "typeCheckingMode": "standard",
   "reportAny": "none",
   "reportExplicitAny": "none",
@@ -16,7 +25,7 @@
   "executionEnvironments": [
     {
       "root": ".",
-      "extraPaths": ["src"]
+      "extraPaths": ["."]
     }
   ]
 }

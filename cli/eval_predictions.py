@@ -8,9 +8,9 @@ import json
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from lora.eval import evaluate_predictions, load_predictions
-from lora.mlops import load_lora_run_config
-from lora.paths import resolve_project_path
+from eval import evaluate_predictions, load_predictions
+from mlops import load_lora_run_config
+from paths import resolve_project_path
 
 
 def parse_args() -> argparse.Namespace:

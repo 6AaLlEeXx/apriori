@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 import json
 
-from lora.paths import (
+from paths import (
     DEFAULT_KERNEL_RESULTS_ROOT,
     DEFAULT_REPORTS_ROOT,
     resolve_project_path,

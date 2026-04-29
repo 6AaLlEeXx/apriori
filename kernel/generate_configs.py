@@ -5,10 +5,10 @@ from pathlib import Path
 from typing import Any, Sequence
 import re
 
-from lora.data_prep import load_data_prep_config, validate_data_prep_config
-from lora.kernel.config import KernelRunConfig
-from lora.mlops import LoraRunConfig, load_lora_run_config
-from lora.paths import project_root, resolve_existing_project_path, resolve_project_path
+from data_prep import load_data_prep_config, validate_data_prep_config
+from kernel.config import KernelRunConfig, SUPPORTED_KERNEL_BACKENDS
+from mlops import LoraRunConfig, load_lora_run_config
+from paths import project_root, resolve_existing_project_path, resolve_project_path
 
 try:
     import yaml
@@ -18,7 +18,7 @@ except ImportError:  # pragma: no cover - required dependency in pyproject
 
 DEFAULT_GENERATED_KERNEL_CONFIG_DIR = "configs/kernel/generated"
 DEFAULT_BASE_LORA_CONFIG = "configs/base.yaml"
-DEFAULT_KERNEL_BACKENDS = ["frozen_pair"]
+DEFAULT_KERNEL_BACKENDS = ["lora_ntk"]
 
 
 @dataclass(frozen=True)
@@ -74,8 +74,6 @@ def _load_training_configs(
 
 
 def _backend_args(backend: str) -> dict[str, str]:
-    if backend == "frozen_pair":
-        return {"pooling": "completion_mean"}
     if backend == "lora_ntk":
         return {"leaf_filter": "lora_b_only"}
     return {}
@@ -153,6 +151,12 @@ def plan_generated_kernel_configs(
 
         for backend in backends:
             backend = str(backend)
+            if backend not in SUPPORTED_KERNEL_BACKENDS:
+                supported = ", ".join(sorted(SUPPORTED_KERNEL_BACKENDS))
+                raise ValueError(
+                    f"Unsupported kernel backend `{backend}`. "
+                    f"Supported backends: {supported}"
+                )
             backend_component = _file_component(backend)
             output_path = (
                 output_root

@@ -7,7 +7,7 @@ import sys
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from lora.kernel.generate_configs import (
+from kernel.generate_configs import (
     DEFAULT_GENERATED_KERNEL_CONFIG_DIR,
     DEFAULT_KERNEL_BACKENDS,
     plan_generated_kernel_configs,
@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
         "--backends",
         nargs="+",
         default=DEFAULT_KERNEL_BACKENDS,
-        help="Kernel backends to generate. Defaults to frozen_pair.",
+        help="Kernel backends to generate. Defaults to lora_ntk.",
     )
     parser.add_argument(
         "--output-dir",

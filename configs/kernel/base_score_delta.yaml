@@ -4,7 +4,7 @@ base_model: mlx-community/SmolLM2-1.7B-Instruct
 data_dir: data/dolly
 adapter_path: ""
 output_root: results/kernel
-backend: frozen_pair
+backend: lora_ntk
 target: score_delta
 seed: 42
 train_limit: 128
@@ -15,7 +15,8 @@ kernel:
   ridge_lambda: 1.0e-2
   rank: 32
   num_landmarks: 32
-backend_args: {}
+backend_args:
+  leaf_filter: lora_b_only
 run_tags:
   - mlx-lora
   - kernel

@@ -8,7 +8,7 @@ import sys
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from lora.mlops import (
+from mlops import (
     build_mlx_config_payload,
     build_run_metadata,
     build_run_name,
@@ -104,6 +104,11 @@ def main() -> None:
             run_dir=paths.run_dir,
             sample_selector=args.sample_selector,
             max_example=args.max_examples,
+            selector_context={
+                "base_model": config.base_model,
+                "mlx_args": config.mlx_args,
+                "seed": config.mlx_args.get("seed", 42),
+            },
         )
         metadata["sampling"] = sampling_meta
     metadata["train_data_dir"] = str(train_data_dir)

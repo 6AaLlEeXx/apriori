@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
-from lora.kernel.config import (
+import pytest
+
+from kernel.config import (
     KernelRunConfig,
     build_kernel_run_name,
     load_kernel_run_config,
@@ -19,7 +21,7 @@ def test_load_kernel_run_config_supports_extends(tmp_path: Path) -> None:
             [
                 "dataset_name: dolly",
                 "adapter_path: results/adapters/example",
-                "backend: frozen_pair",
+                "backend: lora_ntk",
                 "kernel:",
                 "  method: nystrom",
                 "  ridge_lambda: 0.01",
@@ -48,13 +50,28 @@ def test_load_kernel_run_config_supports_extends(tmp_path: Path) -> None:
     assert config.backend_args["leaf_filter"] == "lora_b_only"
 
 
+def test_load_kernel_run_config_rejects_unsupported_backend(tmp_path: Path) -> None:
+    config_path = tmp_path / "kernel.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "dataset_name: dolly",
+                "backend: unsupported_backend",
+            ]
+        )
+    )
+
+    with pytest.raises(ValueError, match="Unsupported kernel backend"):
+        load_kernel_run_config(config_path)
+
+
 def test_build_kernel_run_name_includes_backend_and_limits() -> None:
-    config = load_kernel_run_config("configs/kernel/dolly_frozen_pair.yaml")
+    config = load_kernel_run_config("configs/kernel/dolly_lora_ntk.yaml")
     run_name = build_kernel_run_name(config)
     assert "dolly" in run_name
     assert "smollm2-1-7b-instruct" in run_name
-    assert "frozen-pair" in run_name
-    assert "n256" in run_name
+    assert "lora-ntk" in run_name
+    assert "n64" in run_name
 
 
 def test_resolve_adapter_path_matches_dataset_aliases(tmp_path: Path) -> None:

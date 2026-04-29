@@ -7,8 +7,8 @@ import sys
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from lora.mlops import collect_run_summaries, render_markdown_report
-from lora.paths import DEFAULT_REPORTS_ROOT, DEFAULT_RESULTS_ROOT, resolve_project_path
+from mlops import collect_run_summaries, render_markdown_report
+from paths import DEFAULT_REPORTS_ROOT, DEFAULT_RESULTS_ROOT, resolve_project_path
 
 
 def parse_args() -> argparse.Namespace:
