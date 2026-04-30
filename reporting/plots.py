@@ -738,6 +738,35 @@ def _average_duplicate_labels(rows: list[tuple[str, float]]) -> list[tuple[str, 
     ]
 
 
+def _kernel_adapter_label(summary: dict[str, Any]) -> str:
+    run_name = str(summary.get("run_name") or "kernel")
+    marker = "-kernel"
+    if marker in run_name:
+        return run_name.split(marker, 1)[0]
+    return run_name
+
+
+def _kernel_series_by_train_size(
+    summaries: list[dict[str, Any]],
+    metric_path: str,
+) -> dict[str, list[tuple[float, float]]]:
+    series: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    for summary in summaries:
+        split_sizes = summary.get("split_sizes") or {}
+        if not isinstance(split_sizes, dict):
+            continue
+        train_size = _number(split_sizes.get("train"))
+        value = _number(_nested(summary, metric_path))
+        if train_size is None or value is None:
+            continue
+        series[_kernel_adapter_label(summary)].append((train_size, value))
+    return {
+        name: values
+        for name, values in series.items()
+        if values
+    }
+
+
 def generate_kernel_prediction_plots(
     summaries: list[dict[str, Any]],
     output_dir: str | Path,
@@ -747,6 +776,52 @@ def generate_kernel_prediction_plots(
 ) -> list[PlotArtifact]:
     output_dir = Path(output_dir)
     artifacts: list[PlotArtifact] = []
+    train_delta_series = _kernel_series_by_train_size(
+        summaries,
+        "eval.test.delta.pearson",
+    )
+    if train_delta_series:
+        path = output_dir / "kernel_train_size_test_delta_pearson.svg"
+        _write(
+            path,
+            _line_chart(
+                train_delta_series,
+                title="Kernel Train Size: Test Delta Pearson",
+                x_label="Kernel fit training examples",
+                y_label="Test Delta Pearson",
+            ),
+        )
+        artifacts.append(
+            PlotArtifact(
+                "Kernel Train Size: Test Delta Pearson",
+                path,
+                "Held-out score-delta correlation as the kernel fit set grows.",
+            )
+        )
+
+    train_rmse_series = _kernel_series_by_train_size(
+        summaries,
+        "eval.test.delta.rmse",
+    )
+    if train_rmse_series:
+        path = output_dir / "kernel_train_size_test_delta_rmse.svg"
+        _write(
+            path,
+            _line_chart(
+                train_rmse_series,
+                title="Kernel Train Size: Test Delta RMSE",
+                x_label="Kernel fit training examples",
+                y_label="Test Delta RMSE",
+            ),
+        )
+        artifacts.append(
+            PlotArtifact(
+                "Kernel Train Size: Test Delta RMSE",
+                path,
+                "Held-out score-delta error as the kernel fit set grows; lower is better.",
+            )
+        )
+
     for index, summary in enumerate(summaries[:max_scatter_plots]):
         run_dir = summary.get("run_dir")
         if not run_dir:

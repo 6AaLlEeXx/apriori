@@ -233,3 +233,41 @@ def test_make_kernel_report_writes_prediction_scatter_plot(tmp_path: Path) -> No
         / "kernel"
         / "ntk_predicted_vs_true_00_dolly-run.svg"
     ).exists()
+
+
+def test_make_kernel_report_writes_train_size_sweep_plots(tmp_path: Path) -> None:
+    output_root = tmp_path / "kernel"
+    _write_run(
+        output_root,
+        run_name="adapter-kernel-n32",
+        dataset_name="dolly",
+        backend="lora_ntk",
+        train_n=32,
+        test_delta_pearson=0.6,
+    )
+    _write_run(
+        output_root,
+        run_name="adapter-kernel-n64",
+        dataset_name="dolly",
+        backend="lora_ntk",
+        train_n=64,
+        test_delta_pearson=0.8,
+    )
+
+    output_path = tmp_path / "kernel.md"
+    make_kernel_report(output_root=output_root, output_path=output_path)
+
+    report = output_path.read_text()
+    assert "Kernel Train Size: Test Delta Pearson" in report
+    assert (
+        tmp_path
+        / "assets"
+        / "kernel"
+        / "kernel_train_size_test_delta_pearson.svg"
+    ).exists()
+    assert (
+        tmp_path
+        / "assets"
+        / "kernel"
+        / "kernel_train_size_test_delta_rmse.svg"
+    ).exists()

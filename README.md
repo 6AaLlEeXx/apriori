@@ -208,6 +208,10 @@ Useful overrides:
 - `KERNEL_ADAPTER_RUNS="<run-name> ..."` - restrict kernel prediction to a
   subset of adapters. By default, every adapter trained by the orchestration is
   tested.
+- `KERNEL_TRAIN_LIMITS="32 64 128 256 512"` - sweep kernel fit-set sizes.
+- `KERNEL_VALID_LIMIT=64` - override the kernel validation split size.
+- `KERNEL_TEST_LIMIT=2048` - override the kernel test split size, which also
+  controls the number of points in the kernel scatter plots.
 
 ## Prepare Data
 
@@ -438,6 +442,16 @@ The cache key includes the base model, adapter identity/config, backend args,
 seed, and selected row content. This is useful when sweeping `train_limit`
 values because fixed validation/test scores and features can be reused across
 kernel runs.
+
+For train-limit sweeps, `orchestrate.sh` names kernel runs with explicit suffixes:
+
+```text
+<adapter-run>-kernel-n32
+<adapter-run>-kernel-n64
+```
+
+The kernel run report includes train-size sweep plots for test delta Pearson and
+test delta RMSE.
 
 ## Reports
 

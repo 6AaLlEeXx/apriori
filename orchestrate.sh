@@ -56,6 +56,9 @@ PREPARED_DATA_DIR="${PREPARED_DATA_DIR:-data/${DATASET}}"
 REUSE_EXISTING_ADAPTERS="${REUSE_EXISTING_ADAPTERS:-0}"
 REUSE_EXISTING_COMPARISONS="${REUSE_EXISTING_COMPARISONS:-0}"
 RUN_KERNEL="${RUN_KERNEL:-1}"
+KERNEL_TRAIN_LIMITS="${KERNEL_TRAIN_LIMITS:-}"
+KERNEL_VALID_LIMIT="${KERNEL_VALID_LIMIT:-}"
+KERNEL_TEST_LIMIT="${KERNEL_TEST_LIMIT:-}"
 PLAN_ONLY="${PLAN_ONLY:-0}"
 DEBUG="${DEBUG:-1}"
 
@@ -77,6 +80,11 @@ read -r -a METHOD_ARRAY <<< "$METHODS"
 if [[ "${#METHOD_ARRAY[@]}" -eq 0 ]]; then
   echo "METHODS must contain at least one method suffix." >&2
   exit 2
+fi
+if [[ -n "$KERNEL_TRAIN_LIMITS" ]]; then
+  read -r -a KERNEL_TRAIN_LIMIT_ARRAY <<< "$KERNEL_TRAIN_LIMITS"
+else
+  KERNEL_TRAIN_LIMIT_ARRAY=("")
 fi
 
 prepared_data_exists() {
@@ -139,9 +147,9 @@ KERNEL_COMMAND_COUNT=0
 if [[ "$RUN_KERNEL" == "1" ]]; then
   if [[ -n "${KERNEL_ADAPTER_RUNS:-}" ]]; then
     read -r -a PLANNED_KERNEL_ARRAY <<< "$KERNEL_ADAPTER_RUNS"
-    KERNEL_COMMAND_COUNT="${#PLANNED_KERNEL_ARRAY[@]}"
+    KERNEL_COMMAND_COUNT=$((${#PLANNED_KERNEL_ARRAY[@]} * ${#KERNEL_TRAIN_LIMIT_ARRAY[@]}))
   else
-    KERNEL_COMMAND_COUNT="$PLANNED_ADAPTER_COUNT"
+    KERNEL_COMMAND_COUNT=$((PLANNED_ADAPTER_COUNT * ${#KERNEL_TRAIN_LIMIT_ARRAY[@]}))
   fi
 fi
 REPORT_COMMAND_COUNT=2
@@ -289,6 +297,9 @@ write_manifest() {
 - Reuse existing subset adapters: \`${REUSE_EXISTING_ADAPTERS}\`
 - Reuse existing comparisons: \`${REUSE_EXISTING_COMPARISONS}\`
 - Kernel adapter runs: \`all trained adapters unless KERNEL_ADAPTER_RUNS is set\`
+- Kernel train limits: \`${KERNEL_TRAIN_LIMITS:-config default}\`
+- Kernel valid limit override: \`${KERNEL_VALID_LIMIT:-config default}\`
+- Kernel test limit override: \`${KERNEL_TEST_LIMIT:-config default}\`
 - Reports: \`${REPORT_DIR}\`
 
 This orchestration trains one full adapter and one subset adapter for each
@@ -298,16 +309,45 @@ reports with SVG visualizations.
 EOF
 }
 
+kernel_run_suffix() {
+  local train_limit="$1"
+  local suffix="kernel"
+  if [[ -n "$train_limit" ]]; then
+    suffix="${suffix}-n${train_limit}"
+  fi
+  if [[ -n "$KERNEL_VALID_LIMIT" ]]; then
+    suffix="${suffix}-v${KERNEL_VALID_LIMIT}"
+  fi
+  if [[ -n "$KERNEL_TEST_LIMIT" ]]; then
+    suffix="${suffix}-t${KERNEL_TEST_LIMIT}"
+  fi
+  echo "$suffix"
+}
+
 write_kernel_config() {
   local adapter_run="$1"
-  local config_path="${KERNEL_CONFIG_DIR}/${adapter_run}.yaml"
+  local train_limit="${2:-}"
+  local suffix
+  suffix="$(kernel_run_suffix "$train_limit")"
+  local config_path="${KERNEL_CONFIG_DIR}/${adapter_run}-${suffix}.yaml"
   mkdir -p "$KERNEL_CONFIG_DIR"
   cat > "$config_path" <<EOF
 extends: "${ROOT_DIR}/${KERNEL_CONFIG}"
 base_model: "${BASE_MODEL}"
 adapter_path: "${ROOT_DIR}/results/adapters/${adapter_run}"
 output_root: "${ROOT_DIR}/${KERNEL_OUTPUT_ROOT}"
-notes: "Orchestrated kernel run for ${adapter_run}."
+EOF
+  if [[ -n "$train_limit" ]]; then
+    printf 'train_limit: %s\n' "$train_limit" >> "$config_path"
+  fi
+  if [[ -n "$KERNEL_VALID_LIMIT" ]]; then
+    printf 'valid_limit: %s\n' "$KERNEL_VALID_LIMIT" >> "$config_path"
+  fi
+  if [[ -n "$KERNEL_TEST_LIMIT" ]]; then
+    printf 'test_limit: %s\n' "$KERNEL_TEST_LIMIT" >> "$config_path"
+  fi
+  cat >> "$config_path" <<EOF
+notes: "Orchestrated kernel run for ${adapter_run}${train_limit:+ with train_limit=${train_limit}}."
 EOF
   echo "$config_path"
 }
@@ -321,6 +361,7 @@ log "Full run: ${FULL_RUN}; train full adapter: ${TRAIN_FULL}"
 log "Prepare data: ${PREPARE_DATA}; prepared data dir: ${PREPARED_DATA_DIR}"
 log "Reuse existing subset adapters: ${REUSE_EXISTING_ADAPTERS}; reusable subset adapters found: ${REUSED_SUBSET_COUNT}"
 log "Reuse existing comparisons: ${REUSE_EXISTING_COMPARISONS}; reusable comparisons found: ${REUSED_COMPARISON_COUNT}"
+log "Kernel train limits: ${KERNEL_TRAIN_LIMITS:-config default}; valid override: ${KERNEL_VALID_LIMIT:-config default}; test override: ${KERNEL_TEST_LIMIT:-config default}"
 log "Planned work: ${PLANNED_ADAPTER_COUNT} adapters, ${SUBSET_RUN_COUNT} comparisons, ${KERNEL_COMMAND_COUNT} kernel runs"
 if [[ "$PLAN_ONLY" == "1" ]]; then
   log "PLAN_ONLY=1: commands will be printed but not executed."
@@ -418,14 +459,17 @@ if [[ "$RUN_KERNEL" == "1" ]]; then
   fi
   KERNEL_INDEX=0
   for adapter_run in "${KERNEL_RUN_ARRAY[@]}"; do
-    KERNEL_INDEX=$((KERNEL_INDEX + 1))
-    log "Kernel ${KERNEL_INDEX}/${#KERNEL_RUN_ARRAY[@]} for adapter ${adapter_run}"
-    kernel_config="$(write_kernel_config "$adapter_run")"
-    kernel_run_name="${adapter_run}-kernel"
-    run_cmd uv run mlx-lora-run-kernel \
-      --config "$kernel_config" \
-      --run-name "$kernel_run_name" \
-      --base-model "$BASE_MODEL"
+    for train_limit in "${KERNEL_TRAIN_LIMIT_ARRAY[@]}"; do
+      KERNEL_INDEX=$((KERNEL_INDEX + 1))
+      kernel_suffix="$(kernel_run_suffix "$train_limit")"
+      log "Kernel ${KERNEL_INDEX}/${KERNEL_COMMAND_COUNT} for adapter ${adapter_run}, train_limit=${train_limit:-config default}"
+      kernel_config="$(write_kernel_config "$adapter_run" "$train_limit")"
+      kernel_run_name="${adapter_run}-${kernel_suffix}"
+      run_cmd uv run mlx-lora-run-kernel \
+        --config "$kernel_config" \
+        --run-name "$kernel_run_name" \
+        --base-model "$BASE_MODEL"
+    done
   done
 else
   section "Skip kernel prediction experiments"
