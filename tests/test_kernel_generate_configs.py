@@ -53,6 +53,9 @@ def test_generate_kernel_config_from_data_config(tmp_path: Path) -> None:
     assert payload["data_dir"] == "data/toy"
     assert payload["backend"] == "lora_ntk"
     assert payload["target"] == "score_delta"
+    assert payload["train_limit"] == 128
+    assert payload["valid_limit"] == 128
+    assert payload["test_limit"] == 128
     assert payload["backend_args"] == {"leaf_filter": "lora_b_only"}
     assert "data" in payload["source_config"]
 
@@ -88,6 +91,42 @@ def test_generate_kernel_config_uses_cli_model_before_training_config(
     assert payload["data_dir"] == "custom/toy"
     assert payload["backend_args"] == {"leaf_filter": "lora_b_only"}
     assert payload["source_config"]["training"].endswith("train.yaml")
+
+
+def test_generate_kernel_config_accepts_split_limit_overrides(
+    tmp_path: Path,
+) -> None:
+    data_config = tmp_path / "toy.yaml"
+    _write_data_config(data_config)
+
+    planned = plan_generated_kernel_configs(
+        data_configs=[data_config],
+        base_model="models/test",
+        train_limit=64,
+        valid_limit=0,
+        test_limit=2048,
+        output_dir=tmp_path / "generated",
+    )
+
+    payload = planned[0].payload
+    assert payload["train_limit"] == 64
+    assert payload["valid_limit"] == 0
+    assert payload["test_limit"] == 2048
+
+
+def test_generate_kernel_config_rejects_negative_split_limits(
+    tmp_path: Path,
+) -> None:
+    data_config = tmp_path / "toy.yaml"
+    _write_data_config(data_config)
+
+    with pytest.raises(ValueError, match="test_limit"):
+        plan_generated_kernel_configs(
+            data_configs=[data_config],
+            base_model="models/test",
+            test_limit=-1,
+            output_dir=tmp_path / "generated",
+        )
 
 
 def test_generate_kernel_config_rejects_unsupported_backend(tmp_path: Path) -> None:

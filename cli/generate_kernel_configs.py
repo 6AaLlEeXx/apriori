@@ -53,6 +53,28 @@ def parse_args() -> argparse.Namespace:
         help="Directory for generated kernel configs.",
     )
     parser.add_argument(
+        "--train-limit",
+        type=int,
+        default=None,
+        help=(
+            "Override generated train_limit. Use 0 to use the full train split."
+        ),
+    )
+    parser.add_argument(
+        "--valid-limit",
+        type=int,
+        default=None,
+        help=(
+            "Override generated valid_limit. Use 0 to use the full valid split."
+        ),
+    )
+    parser.add_argument(
+        "--test-limit",
+        type=int,
+        default=None,
+        help="Override generated test_limit. Use 0 to use the full test split.",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Overwrite existing generated configs.",
@@ -74,6 +96,9 @@ def main() -> None:
         base_model=args.base_model,
         backends=args.backends,
         output_dir=args.output_dir,
+        train_limit=args.train_limit,
+        valid_limit=args.valid_limit,
+        test_limit=args.test_limit,
     )
     paths = write_generated_kernel_configs(
         planned,

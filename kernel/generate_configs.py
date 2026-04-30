@@ -79,6 +79,15 @@ def _backend_args(backend: str) -> dict[str, str]:
     return {}
 
 
+def _resolve_limit(name: str, value: int | None, default: int) -> int:
+    if value is None:
+        return default
+    resolved = int(value)
+    if resolved < 0:
+        raise ValueError(f"`{name}` must be >= 0.")
+    return resolved
+
+
 def _resolve_base_config(
     base_config_path: str | Path,
 ) -> tuple[Path | None, LoraRunConfig]:
@@ -97,6 +106,9 @@ def plan_generated_kernel_configs(
     backends: Sequence[str] = DEFAULT_KERNEL_BACKENDS,
     output_dir: str | Path = DEFAULT_GENERATED_KERNEL_CONFIG_DIR,
     base_config_path: str | Path = DEFAULT_BASE_LORA_CONFIG,
+    train_limit: int | None = None,
+    valid_limit: int | None = None,
+    test_limit: int | None = None,
 ) -> list[GeneratedKernelConfig]:
     selected_data_configs: list[str | Path] = list(data_configs)
     if all_data_configs:
@@ -111,6 +123,21 @@ def plan_generated_kernel_configs(
     training_by_dataset = _load_training_configs(training_configs)
     base_config_resolved, base_config = _resolve_base_config(base_config_path)
     default_kernel = KernelRunConfig()
+    resolved_train_limit = _resolve_limit(
+        "train_limit",
+        train_limit,
+        default_kernel.train_limit,
+    )
+    resolved_valid_limit = _resolve_limit(
+        "valid_limit",
+        valid_limit,
+        default_kernel.valid_limit,
+    )
+    resolved_test_limit = _resolve_limit(
+        "test_limit",
+        test_limit,
+        default_kernel.test_limit,
+    )
 
     planned: list[GeneratedKernelConfig] = []
     used_output_paths: set[Path] = set()
@@ -180,9 +207,9 @@ def plan_generated_kernel_configs(
                 "backend": backend,
                 "target": "score_delta",
                 "seed": default_kernel.seed,
-                "train_limit": default_kernel.train_limit,
-                "valid_limit": default_kernel.valid_limit,
-                "test_limit": default_kernel.test_limit,
+                "train_limit": resolved_train_limit,
+                "valid_limit": resolved_valid_limit,
+                "test_limit": resolved_test_limit,
                 "kernel": asdict(default_kernel.kernel),
                 "backend_args": _backend_args(backend),
                 "source_config": source_config,

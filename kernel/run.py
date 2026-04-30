@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Protocol
 import gc
+import hashlib
 import json
 
 import numpy as np
@@ -35,6 +36,14 @@ from paths import resolve_project_path
 
 Array = NDArray[Any]
 FloatArray = NDArray[np.float64]
+KERNEL_CACHE_VERSION = 1
+
+
+class Scorer(Protocol):
+    def score_record(self, record: PairRecord) -> tuple[float, Any]: ...
+
+
+ScorerFactory = Callable[[str, str | None], Scorer]
 
 
 def _split_limits(config: KernelRunConfig) -> dict[str, tuple[int, int]]:
@@ -99,7 +108,7 @@ def _load_split_records(
 
 
 def _score_records(
-    scorer: ModelScorer,
+    scorer: Scorer,
     records: list[PairRecord],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
@@ -118,6 +127,227 @@ def _score_records(
     return rows
 
 
+def _json_hash(payload: Any) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _file_sha256(path: Path) -> str | None:
+    if not path.exists() or not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _file_fingerprint(path: Path) -> dict[str, Any]:
+    if not path.exists() or not path.is_file():
+        return {"path": str(path), "exists": False}
+    stat = path.stat()
+    return {
+        "path": str(path),
+        "exists": True,
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+        "sha256": _file_sha256(path),
+    }
+
+
+def _records_payload(records: list[PairRecord]) -> dict[str, Any]:
+    digest = hashlib.sha256()
+    for record in records:
+        digest.update(
+            json.dumps(
+                {
+                    "pair_id": record.pair_id,
+                    "split": record.split,
+                    "prompt": record.prompt,
+                    "completion": record.completion,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+        digest.update(b"\n")
+    return {
+        "count": len(records),
+        "sha256": digest.hexdigest(),
+        "pair_ids": [record.pair_id for record in records],
+    }
+
+
+def _adapter_config_payload(adapter_path: str | Path) -> dict[str, Any]:
+    adapter_dir = resolve_project_path(adapter_path)
+    config_path = adapter_dir / "adapter_config.json"
+    if not config_path.exists():
+        return {"exists": False}
+    payload = json.loads(config_path.read_text())
+    return {
+        "exists": True,
+        "sha256": _file_sha256(config_path),
+        "config": payload,
+    }
+
+
+def _adapter_score_payload(adapter_path: str | Path | None) -> dict[str, Any]:
+    if adapter_path is None:
+        return {"kind": "base"}
+    adapter_dir = resolve_project_path(adapter_path)
+    files = {
+        name: _file_fingerprint(adapter_dir / name)
+        for name in ("adapter_config.json", "adapters.safetensors")
+    }
+    return {
+        "kind": "adapter",
+        "path": str(adapter_dir),
+        "files": files,
+    }
+
+
+def _kernel_cache_root(config: KernelRunConfig) -> Path:
+    return resolve_project_path(config.output_root) / "cache"
+
+
+def _score_cache_path(
+    config: KernelRunConfig,
+    records: list[PairRecord],
+    *,
+    adapter_path: str | Path | None,
+) -> Path:
+    payload = {
+        "version": KERNEL_CACHE_VERSION,
+        "kind": "score",
+        "base_model": config.base_model,
+        "adapter": _adapter_score_payload(adapter_path),
+        "records": _records_payload(records),
+    }
+    return _kernel_cache_root(config) / "scores" / f"{_json_hash(payload)}.jsonl"
+
+
+def _feature_cache_path(
+    config: KernelRunConfig,
+    records: list[PairRecord],
+) -> Path:
+    payload = {
+        "version": KERNEL_CACHE_VERSION,
+        "kind": "features",
+        "backend": config.backend,
+        "base_model": config.base_model,
+        "seed": config.seed,
+        "backend_args": dict(config.backend_args),
+        "adapter_config": _adapter_config_payload(config.adapter_path),
+        "records": _records_payload(records),
+    }
+    backend = config.backend.lower().replace("-", "_")
+    return (
+        _kernel_cache_root(config)
+        / "features"
+        / backend
+        / f"{_json_hash(payload)}.npy"
+    )
+
+
+def _read_jsonl(path: str | Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    with Path(path).open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            payload = json.loads(line)
+            if isinstance(payload, dict):
+                rows.append(payload)
+    return rows
+
+
+def _score_cache_valid(
+    rows: list[dict[str, Any]],
+    records: list[PairRecord],
+) -> bool:
+    return [str(row.get("pair_id")) for row in rows] == [
+        record.pair_id for record in records
+    ]
+
+
+def _load_cached_scores(
+    path: str | Path,
+    records: list[PairRecord],
+) -> list[dict[str, Any]] | None:
+    try:
+        rows = _read_jsonl(path)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    if _score_cache_valid(rows, records):
+        return rows
+    return None
+
+
+def _load_cached_feature_matrix(
+    path: str | Path,
+    expected_rows: int,
+) -> Array | None:
+    try:
+        features = np.load(Path(path), mmap_mode="r")
+    except (FileNotFoundError, OSError, ValueError):
+        return None
+    if features.ndim == 2 and features.shape[0] == expected_rows:
+        return features
+    return None
+
+
+def _cache_log(message: str) -> None:
+    print(f"[kernel-cache] {message}", flush=True)
+
+
+def _score_splits_with_cache(
+    config: KernelRunConfig,
+    records: dict[str, list[PairRecord]],
+    *,
+    adapter_path: str | None,
+    scorer_factory: ScorerFactory = ModelScorer,
+) -> dict[str, list[dict[str, Any]]]:
+    rows_by_split: dict[str, list[dict[str, Any]]] = {}
+    missing: list[tuple[str, Path]] = []
+    label = "base" if adapter_path is None else Path(adapter_path).name
+
+    for split in ("train", "valid", "test"):
+        cache_path = _score_cache_path(
+            config,
+            records[split],
+            adapter_path=adapter_path,
+        )
+        cached = _load_cached_scores(cache_path, records[split])
+        if cached is not None:
+            _cache_log(f"score hit model={label} split={split} path={cache_path}")
+            rows_by_split[split] = cached
+        else:
+            _cache_log(f"score miss model={label} split={split} path={cache_path}")
+            missing.append((split, cache_path))
+
+    if missing:
+        scorer = scorer_factory(config.base_model, adapter_path)
+        for split, cache_path in missing:
+            rows = _score_records(scorer, records[split])
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            _write_jsonl(cache_path, rows)
+            _cache_log(
+                f"score written model={label} split={split} path={cache_path}"
+            )
+            rows_by_split[split] = rows
+        del scorer
+        gc.collect()
+
+    return rows_by_split
+
+
 def _index_scores(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {str(row["pair_id"]): row for row in rows}
 
@@ -131,13 +361,21 @@ def _write_jsonl(path: str | Path, rows: list[dict[str, Any]]) -> None:
 
 
 def _extract_features_to_npy(
+    config: KernelRunConfig,
     backend: Any,
     records: list[PairRecord],
-    path: str | Path,
 ) -> tuple[Path, int]:
-    path = Path(path)
     if not records:
         raise ValueError("Cannot extract features for an empty split.")
+    path = _feature_cache_path(config, records)
+    cached = _load_cached_feature_matrix(path, len(records))
+    if cached is not None:
+        feature_dim = int(cached.shape[1])
+        _cache_log(f"feature hit split={records[0].split} path={path}")
+        return path, feature_dim
+
+    _cache_log(f"feature miss split={records[0].split} path={path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
     first = backend.extract_feature(records[0])
     matrix = np.lib.format.open_memmap(
         path,
@@ -150,6 +388,7 @@ def _extract_features_to_npy(
         matrix[index] = backend.extract_feature(record)
     feature_dim = int(first.shape[0])
     del matrix
+    _cache_log(f"feature written split={records[0].split} path={path}")
     return path, feature_dim
 
 
@@ -347,23 +586,16 @@ def run_kernel_experiment(
     records = _load_split_records(runtime_config)
 
     score_rows: dict[str, list[dict[str, Any]]] = {}
-    base_scores_by_split: dict[str, list[dict[str, Any]]] = {}
-    adapter_scores_by_split: dict[str, list[dict[str, Any]]] = {}
-    base_scorer = ModelScorer(runtime_config.base_model, adapter_path=None, lazy=True)
-    for split in ("train", "valid", "test"):
-        base_scores_by_split[split] = _score_records(base_scorer, records[split])
-    del base_scorer
-    gc.collect()
-
-    adapter_scorer = ModelScorer(
-        runtime_config.base_model,
-        adapter_path=runtime_config.adapter_path,
-        lazy=True,
+    base_scores_by_split = _score_splits_with_cache(
+        runtime_config,
+        records,
+        adapter_path=None,
     )
-    for split in ("train", "valid", "test"):
-        adapter_scores_by_split[split] = _score_records(adapter_scorer, records[split])
-    del adapter_scorer
-    gc.collect()
+    adapter_scores_by_split = _score_splits_with_cache(
+        runtime_config,
+        records,
+        adapter_path=runtime_config.adapter_path,
+    )
 
     for split in ("train", "valid", "test"):
         base_rows = base_scores_by_split[split]
@@ -390,9 +622,9 @@ def run_kernel_experiment(
     feature_dim = 0
     for split in ("train", "valid", "test"):
         path, feature_dim = _extract_features_to_npy(
+            config=runtime_config,
             backend=feature_backend,
             records=records[split],
-            path=paths.features_dir / f"{runtime_config.backend}_{split}.npy",
         )
         feature_paths[split] = path
     del feature_backend

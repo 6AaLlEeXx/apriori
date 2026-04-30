@@ -403,6 +403,9 @@ Generator flags:
 - `--base-model` - override generated `base_model`.
 - `--backends` - backend names; currently defaults to `lora_ntk`.
 - `--output-dir` - generated config directory.
+- `--train-limit` - override generated `train_limit`; use `0` for the full train split.
+- `--valid-limit` - override generated `valid_limit`; use `0` for the full valid split.
+- `--test-limit` - override generated `test_limit`; use `0` for the full test split.
 - `--force` - overwrite existing generated configs.
 - `--dry-run` - print planned paths without writing.
 
@@ -420,9 +423,21 @@ results/kernel/runs/<run_name>/
   eval.json
   report.md
   scores/{train,valid,test}.jsonl
-  features/<backend>_{train,valid,test}.npy
   predictions/{train,valid,test}.jsonl
 ```
+
+Expensive score and LoRA-NTK feature artifacts are cached under the configured
+kernel `output_root`:
+
+```text
+<output_root>/cache/scores/
+<output_root>/cache/features/
+```
+
+The cache key includes the base model, adapter identity/config, backend args,
+seed, and selected row content. This is useful when sweeping `train_limit`
+values because fixed validation/test scores and features can be reused across
+kernel runs.
 
 ## Reports
 
