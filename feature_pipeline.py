@@ -12,7 +12,11 @@ from numpy.typing import NDArray
 from kernel.data import PairRecord
 from paths import resolve_project_path
 from projection import apply_projection
-from transformations import apply_transformations, normalize_transformation_names
+from transformations import (
+    apply_transformations,
+    normalize_transformation_names,
+    normalize_transformation_params,
+)
 
 
 FloatMatrix = NDArray[np.float32]
@@ -301,6 +305,7 @@ def _project_sparse_random_chunked(
     *,
     context: dict[str, Any],
     transformation_names: list[str],
+    transformation_params: dict[str, dict[str, Any]],
     projection_components: int | None,
 ) -> tuple[FloatMatrix, dict[str, Any], float, float]:
     from projection.sparse_random import project_chunked
@@ -310,7 +315,11 @@ def _project_sparse_random_chunked(
     def transform_chunk(chunk: FloatMatrix) -> FloatMatrix:
         nonlocal transform_seconds
         start = perf_counter()
-        transformed_chunk = apply_transformations(chunk, transformation_names)
+        transformed_chunk = apply_transformations(
+            chunk,
+            transformation_names,
+            params=transformation_params,
+        )
         transform_seconds += perf_counter() - start
         return transformed_chunk
 
@@ -349,12 +358,16 @@ def prepare_feature_matrix(
         projection_components = int(projection_components)
 
     transformation_names = normalize_transformation_names(transformations)
+    transformation_params = normalize_transformation_params(
+        context.get("selector_transformation_params")
+    )
     if normalized_projection in {"sparse_random", "sparse_random_projection"}:
         projected, projection_metadata, transform_seconds, projection_seconds = (
             _project_sparse_random_chunked(
                 features,
                 context=context,
                 transformation_names=transformation_names,
+                transformation_params=transformation_params,
                 projection_components=projection_components,
             )
         )
@@ -362,7 +375,11 @@ def prepare_feature_matrix(
     else:
         _validate_unprojected_feature_size(features, context=context)
         transform_start = perf_counter()
-        transformed = apply_transformations(features, transformation_names)
+        transformed = apply_transformations(
+            features,
+            transformation_names,
+            params=transformation_params,
+        )
         transform_seconds = perf_counter() - transform_start
         projection_start = perf_counter()
         projected, projection_metadata = apply_projection(
@@ -378,6 +395,7 @@ def prepare_feature_matrix(
     context["selector_feature_pipeline"] = {
         "raw_feature_dim": int(features.shape[1]) if features.ndim == 2 else 0,
         "transformations": transformation_names,
+        "transformation_params": transformation_params,
         "transformed_feature_dim": transformed_feature_dim,
         "projection": projection_metadata,
         "timing": {

@@ -92,6 +92,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--selector-thresholded-sign-threshold",
+        type=float,
+        default=0.01,
+        help=(
+            "Absolute-value dead-zone threshold for the thresholded_sign "
+            "selector transformation. Defaults to 0.01."
+        ),
+    )
+    parser.add_argument(
         "--selector-projection-components",
         type=int,
         default=None,
@@ -158,6 +167,11 @@ def main() -> None:
                 "selector_transformations": (
                     args.selector_transformation or ["identity"]
                 ),
+                "selector_transformation_params": {
+                    "thresholded_sign": {
+                        "threshold": args.selector_thresholded_sign_threshold,
+                    }
+                },
                 "selector_projection": args.selector_projection,
                 "selector_projection_components": (
                     args.selector_projection_components

@@ -23,8 +23,10 @@ _METHOD_ORDER = [
     "random",
     "kmeans",
     "kmeans+sign",
+    "kmeans+thresholded_sign",
     "kmeans+sparse_random",
     "kmeans+sparse_random+sign",
+    "kmeans+sparse_random+thresholded_sign",
 ]
 
 
@@ -163,6 +165,94 @@ def _bar_chart(
         )
         parts.append(
             f'<text x="{center:.1f}" y="{top + plot_h + 18}" text-anchor="end" transform="rotate(-35 {center:.1f} {top + plot_h + 18})" font-family="Arial" font-size="11" fill="#374151">{_escape(label)}</text>'
+        )
+    parts.append("</svg>")
+    return "\n".join(parts)
+
+
+def _grouped_bar_chart(
+    groups: list[float],
+    methods: list[str],
+    values: dict[tuple[float, str], float],
+    *,
+    title: str,
+    y_label: str,
+    higher_is_better: bool = True,
+) -> str:
+    method_count = max(len(methods), 1)
+    group_count = max(len(groups), 1)
+    width = max(860, group_count * max(108, method_count * 24) + 260)
+    height = 460
+    left = 78
+    right = 230
+    top = 54
+    bottom = 78
+    plot_w = width - left - right
+    plot_h = height - top - bottom
+    numeric_values = list(values.values())
+    ymax = _positive_max(numeric_values)
+    if higher_is_better and ymax <= 1.0:
+        ymax = 1.0
+    ymin = min(0.0, min(numeric_values) if numeric_values else 0.0)
+    if ymin == ymax:
+        padding = abs(ymax) * 0.1 or 1.0
+        ymin -= padding
+        ymax += padding
+
+    def sy(value: float) -> float:
+        return top + plot_h - ((value - ymin) / (ymax - ymin)) * plot_h
+
+    zero_y = sy(0.0)
+    group_w = plot_w / group_count
+    inner_w = group_w * 0.74
+    gap = 3
+    bar_w = max(4.0, (inner_w - gap * (method_count - 1)) / method_count)
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="#ffffff"/>',
+        f'<text x="{left}" y="30" font-family="Arial" font-size="18" font-weight="700">{_escape(title)}</text>',
+        f'<text x="20" y="{top + plot_h / 2}" transform="rotate(-90 20 {top + plot_h / 2})" font-family="Arial" font-size="12" fill="#374151">{_escape(y_label)}</text>',
+        f'<line x1="{left}" y1="{zero_y:.1f}" x2="{left + plot_w}" y2="{zero_y:.1f}" stroke="#9ca3af"/>',
+        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_h}" stroke="#9ca3af"/>',
+    ]
+    for tick in range(5):
+        value = ymin + (ymax - ymin) * tick / 4
+        y = sy(value)
+        parts.append(
+            f'<line x1="{left - 4}" y1="{y:.1f}" x2="{left + plot_w}" y2="{y:.1f}" stroke="#e5e7eb"/>'
+        )
+        parts.append(
+            f'<text x="{left - 8}" y="{y + 4:.1f}" text-anchor="end" font-family="Arial" font-size="11" fill="#4b5563">{value:.2f}</text>'
+        )
+    for group_index, group in enumerate(groups):
+        group_center = left + (group_index + 0.5) * group_w
+        start_x = group_center - inner_w / 2
+        parts.append(
+            f'<text x="{group_center:.1f}" y="{top + plot_h + 24}" text-anchor="middle" font-family="Arial" font-size="12" fill="#374151">{group:.0f}</text>'
+        )
+        for method_index, method in enumerate(methods):
+            value = values.get((group, method))
+            if value is None:
+                continue
+            x = start_x + method_index * (bar_w + gap)
+            y = sy(value)
+            rect_y = min(y, zero_y)
+            rect_h = abs(zero_y - y)
+            color = _COLORS[method_index % len(_COLORS)]
+            parts.append(
+                f'<rect x="{x:.1f}" y="{rect_y:.1f}" width="{bar_w:.1f}" height="{rect_h:.1f}" rx="2" fill="{color}"/>'
+            )
+    parts.append(
+        f'<text x="{left + plot_w / 2}" y="{height - 18}" text-anchor="middle" font-family="Arial" font-size="12" fill="#374151">Selected training examples</text>'
+    )
+    for index, method in enumerate(methods):
+        color = _COLORS[index % len(_COLORS)]
+        legend_y = top + 18 + index * 22
+        parts.append(
+            f'<rect x="{left + plot_w + 30}" y="{legend_y - 10}" width="12" height="12" fill="{color}"/>'
+        )
+        parts.append(
+            f'<text x="{left + plot_w + 48}" y="{legend_y}" font-family="Arial" font-size="12" fill="#374151">{_escape(method)}</text>'
         )
     parts.append("</svg>")
     return "\n".join(parts)
@@ -341,6 +431,34 @@ def _series_by_method(
     return dict(out)
 
 
+def _grouped_values_by_subset_size(
+    summaries: list[dict[str, Any]],
+    metric_path: str,
+) -> tuple[list[float], list[str], dict[tuple[float, str], float]]:
+    grouped: dict[tuple[float, str], list[float]] = defaultdict(list)
+    methods_seen: set[str] = set()
+    groups_seen: set[float] = set()
+    for summary in summaries:
+        details = summary.get("selector_details") or {}
+        subset_size = _number(details.get("max_examples"))
+        value = _number(_nested(summary, metric_path))
+        method = str(summary.get("method") or "-")
+        if subset_size is None or value is None or method == "-":
+            continue
+        grouped[(subset_size, method)].append(value)
+        groups_seen.add(subset_size)
+        methods_seen.add(method)
+    methods = [method for method in _METHOD_ORDER if method in methods_seen]
+    methods.extend(sorted(method for method in methods_seen if method not in methods))
+    values = {
+        key: mean
+        for key, method_values in grouped.items()
+        for mean in [_mean(method_values)]
+        if mean is not None
+    }
+    return sorted(groups_seen), methods, values
+
+
 def generate_adapter_comparison_plots(
     summaries: list[dict[str, Any]],
     output_dir: str | Path,
@@ -350,14 +468,14 @@ def generate_adapter_comparison_plots(
     output_dir = Path(output_dir)
     artifacts: list[PlotArtifact] = []
 
-    bar_specs = [
+    grouped_bar_specs = [
         (
             "method_delta_pearson.svg",
             "Method Comparison: Delta Pearson",
             "Delta Pearson",
             "metrics.delta.pearson",
             True,
-            "Average full-vs-subset score-delta correlation by method.",
+            "Full-vs-subset score-delta correlation by method and subset size.",
         ),
         (
             "method_sign_accuracy.svg",
@@ -365,7 +483,7 @@ def generate_adapter_comparison_plots(
             "Sign Accuracy",
             "metrics.delta.sign_accuracy",
             True,
-            "Average agreement on whether fine-tuning helps or hurts each example.",
+            "Agreement on whether fine-tuning helps or hurts each example by method and subset size.",
         ),
         (
             "method_delta_rmse.svg",
@@ -373,7 +491,7 @@ def generate_adapter_comparison_plots(
             "Delta RMSE",
             "metrics.delta.rmse",
             False,
-            "Average error between subset and full score deltas; lower is better.",
+            "Error between subset and full score deltas by method and subset size; lower is better.",
         ),
         (
             "method_adapter_rmse.svg",
@@ -381,10 +499,65 @@ def generate_adapter_comparison_plots(
             "Adapter Score RMSE",
             "metrics.adapter_score.rmse",
             False,
-            "Average direct adapter-score error relative to full fine-tuning; lower is better.",
+            "Direct adapter-score error relative to full fine-tuning by method and subset size; lower is better.",
         ),
     ]
-    for filename, title, ylabel, metric_path, higher, description in bar_specs:
+    for filename, title, ylabel, metric_path, higher, description in grouped_bar_specs:
+        groups, methods, values = _grouped_values_by_subset_size(
+            summaries,
+            metric_path,
+        )
+        if not groups or not methods:
+            continue
+        path = output_dir / filename
+        _write(
+            path,
+            _grouped_bar_chart(
+                groups,
+                methods,
+                values,
+                title=title,
+                y_label=ylabel,
+                higher_is_better=higher,
+            ),
+        )
+        artifacts.append(PlotArtifact(title, path, description))
+
+    average_bar_specs = [
+        (
+            "average_method_delta_pearson.svg",
+            "Average Method Comparison: Delta Pearson",
+            "Delta Pearson",
+            "metrics.delta.pearson",
+            True,
+            "Average full-vs-subset score-delta correlation by method across all subset sizes.",
+        ),
+        (
+            "average_method_sign_accuracy.svg",
+            "Average Method Comparison: Sign Accuracy",
+            "Sign Accuracy",
+            "metrics.delta.sign_accuracy",
+            True,
+            "Average agreement on whether fine-tuning helps or hurts each example across all subset sizes.",
+        ),
+        (
+            "average_method_delta_rmse.svg",
+            "Average Method Error: Delta RMSE",
+            "Delta RMSE",
+            "metrics.delta.rmse",
+            False,
+            "Average error between subset and full score deltas by method across all subset sizes; lower is better.",
+        ),
+        (
+            "average_method_adapter_rmse.svg",
+            "Average Method Error: Adapter Score RMSE",
+            "Adapter Score RMSE",
+            "metrics.adapter_score.rmse",
+            False,
+            "Average direct adapter-score error relative to full fine-tuning by method across all subset sizes; lower is better.",
+        ),
+    ]
+    for filename, title, ylabel, metric_path, higher, description in average_bar_specs:
         rows = _aggregate_by_method(summaries, metric_path)
         if not rows:
             continue

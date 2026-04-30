@@ -19,7 +19,7 @@ projection concerns separate:
 - `cli/` contains command-line entrypoints.
 - `kernel/` contains LoRA-NTK feature extraction, scoring, KRR experiments, adapter comparison, and reports.
 - `selectors/` contains training-set selector files, including LoRA-NTK k-means.
-- `transformations/` contains feature transformations such as `identity` and `sign`.
+- `transformations/` contains feature transformations such as `identity`, `sign`, and `thresholded_sign`.
 - `projection/` contains feature projections such as `identity` and `sparse_random`.
 - `feature_pipeline.py` composes feature extraction, transformations, and projection.
 - `selector_algorithms.py` contains feature-matrix selection algorithms such as k-means.
@@ -56,8 +56,10 @@ Subset methods:
 | `random` | `random` | `selectors/random.py` | - | - |
 | `kmeans` | `kmeans` | `selectors/lora_ntk_kmeans.py` | `identity` | `identity` |
 | `kmeans+sign` | `kmeans-sign` | `selectors/lora_ntk_kmeans.py` | `sign` | `identity` |
+| `kmeans+thresholded_sign` | `kmeans-thresholded-sign` | `selectors/lora_ntk_kmeans.py` | `thresholded_sign` | `identity` |
 | `kmeans+sparse_random` | `kmeans-srp` | `selectors/lora_ntk_kmeans.py` | `identity` | `sparse_random` |
 | `kmeans+sparse_random+sign` | `kmeans-srp-sign` | `selectors/lora_ntk_kmeans.py` | `sign` | `sparse_random` |
+| `kmeans+sparse_random+thresholded_sign` | `kmeans-srp-thresholded-sign` | `selectors/lora_ntk_kmeans.py` | `thresholded_sign` | `sparse_random` |
 
 Run the workflow on one dataset/model pair first:
 
@@ -163,6 +165,11 @@ The adapter comparison report is the main cross-method table. Use it to compare:
 - every subset method vs. full fine-tuning: high adapter-score Pearson, low
   adapter-score RMSE, and small mean delta gap.
 
+Its main method plots are grouped by subset size, so `method_delta_pearson.svg`,
+`method_delta_rmse.svg`, `method_adapter_rmse.svg`, and
+`method_sign_accuracy.svg` compare methods at each `<n>`. Collapsed method
+averages are written separately as `average_method_*.svg`.
+
 The kernel reports separately test whether LoRA-NTK features predict held-out
 adapter score deltas. After the first run works, repeat across multiple `<n>`
 values, datasets, and seeds.
@@ -187,11 +194,14 @@ Useful overrides:
   comparison output already exists.
 - `METHODS="random kmeans-srp-sign"` - restrict selector methods for a faster
   check.
+- `METHODS="kmeans-thresholded-sign kmeans-srp-thresholded-sign"` - run the
+  thresholded sign selector variants.
 - `N_VALUES="128 512 2000"` - choose the three subset sizes.
 - `BASE_MODEL=<model>` - use a different MLX-LM-compatible model.
 - `TRAIN_FULL=0 FULL_RUN_NAME=<run-name>` - reuse an existing full-data adapter
   instead of retraining it.
 - `PROJECTION_COMPONENTS=1024` - set sparse random projection dimension.
+- `THRESHOLDED_SIGN_THRESHOLD=0.01` - set the thresholded sign dead-zone.
 - `SELECTOR_PROJECTION_CHUNK_SIZE=16` - rows per sparse projection chunk.
 - `SELECTOR_MAX_KMEANS_FEATURE_GB=4` - unprojected k-means memory guard.
 - `RUN_KERNEL=0` - skip kernel prediction runs.
@@ -241,6 +251,7 @@ Flags:
 - `--sample-selector` - Python file defining `select_samples(...)`.
 - `--max-examples` - value passed through to the selector as `max_example`.
 - `--selector-transformation` - feature transformation before selector clustering; repeatable, defaults to `identity`.
+- `--selector-thresholded-sign-threshold` - absolute-value dead-zone threshold for `thresholded_sign`; defaults to `0.01`.
 - `--selector-projection` - feature projection before selector clustering; defaults to `identity`.
 - `--selector-projection-components` - output dimension for projections that need one.
 - `--selector-projection-chunk-size` - rows per chunk for memory-conscious selector projections; defaults to `16`.
@@ -255,7 +266,8 @@ uv run mlx-lora-run \
   --config configs/dolly.yaml \
   --sample-selector selectors/lora_ntk_kmeans.py \
   --max-examples 2000 \
-  --selector-transformation sign \
+  --selector-transformation thresholded_sign \
+  --selector-thresholded-sign-threshold 0.01 \
   --selector-projection sparse_random \
   --selector-projection-components 1024
 ```
@@ -272,8 +284,8 @@ def select_samples(rows, max_example=None, context=None):
 - `--max-examples` is optional and passed through as `max_example`.
 - `context`, when accepted by the selector, includes `source_data_dir`,
   `run_dir`, `sampled_data_dir`, `base_model`, `mlx_args`, `seed`,
-  `selector_transformations`, `selector_projection`, and
-  `selector_projection_components`.
+  `selector_transformations`, `selector_transformation_params`,
+  `selector_projection`, and `selector_projection_components`.
 - if `--max-examples` is omitted, training uses the full selector output.
 
 The identity selector (`selectors/identity.py`) returns rows unchanged.
@@ -290,8 +302,8 @@ Raw LoRA-NTK selector features are cached under
 `results/selector_feature_cache/` by default. The cache key includes the base
 model, seed, LoRA feature settings, and train-row content, so k-means variants
 such as `kmeans`, `kmeans+sign`, `kmeans+sparse_random`, and
-`kmeans+sparse_random+sign` reuse the same expensive raw feature matrix while
-still applying their own transformation/projection steps.
+`kmeans+sparse_random+thresholded_sign` reuse the same expensive raw feature
+matrix while still applying their own transformation/projection steps.
 
 For large train splits, unprojected LoRA-NTK k-means is usually not practical:
 the raw feature matrix can be tens of GiB. The runner fails early when the

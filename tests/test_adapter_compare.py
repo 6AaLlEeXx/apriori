@@ -253,6 +253,18 @@ def test_infer_selection_method_covers_experiment_variants() -> None:
         )
         == "kmeans+sparse_random+sign"
     )
+    assert (
+        infer_selection_method(
+            {
+                "selector_path": "selectors/lora_ntk_kmeans.py",
+                "selector_context": {
+                    "selector_transformations": ["thresholded_sign"],
+                    "selector_projection": "sparse_random",
+                },
+            }
+        )
+        == "kmeans+sparse_random+thresholded_sign"
+    )
 
 
 def test_make_adapter_comparison_report_aggregates_methods(tmp_path: Path) -> None:

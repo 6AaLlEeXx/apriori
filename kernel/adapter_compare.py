@@ -231,6 +231,12 @@ def _selector_details(sampling: dict[str, Any] | None) -> dict[str, Any]:
     if isinstance(transformations, str):
         transformations = [transformations]
     transformations = list(transformations or ["identity"])
+    transformation_params = pipeline.get(
+        "transformation_params",
+        context.get("selector_transformation_params", {}),
+    )
+    if not isinstance(transformation_params, dict):
+        transformation_params = {}
     projection_name = projection.get(
         "name",
         context.get("selector_projection", "identity"),
@@ -243,6 +249,7 @@ def _selector_details(sampling: dict[str, Any] | None) -> dict[str, Any]:
         "selector": _basename(sampling.get("selector_path")) or "-",
         "max_examples": sampling.get("max_example"),
         "transformations": transformations,
+        "transformation_params": transformation_params,
         "projection": projection_name,
         "raw_feature_dim": pipeline.get("raw_feature_dim"),
         "transformed_feature_dim": pipeline.get("transformed_feature_dim"),
@@ -267,21 +274,22 @@ def infer_selection_method(
 ) -> str:
     details = _selector_details(sampling)
     selector = str(details["selector"])
-    transformations = {str(value) for value in details["transformations"]}
+    transformations = [
+        str(value)
+        for value in details["transformations"]
+        if str(value) not in {"", "-", "identity", "None", "none"}
+    ]
     projection = str(details["projection"])
 
     if selector == "random.py":
         return "random"
     if selector == "lora_ntk_kmeans.py":
-        has_sign = "sign" in transformations
+        parts = ["kmeans"]
         has_projection = projection not in {"", "-", "identity", "None", "none"}
-        if has_projection and has_sign:
-            return f"kmeans+{projection}+sign"
         if has_projection:
-            return f"kmeans+{projection}"
-        if has_sign:
-            return "kmeans+sign"
-        return "kmeans"
+            parts.append(projection)
+        parts.extend(transformations)
+        return "+".join(parts)
     if fallback:
         return fallback
     if selector and selector != "-":

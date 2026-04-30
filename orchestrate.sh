@@ -48,6 +48,7 @@ METHODS="${METHODS:-$DEFAULT_METHODS}"
 PROJECTION_COMPONENTS="${PROJECTION_COMPONENTS:-$DEFAULT_PROJECTION_COMPONENTS}"
 SELECTOR_PROJECTION_CHUNK_SIZE="${SELECTOR_PROJECTION_CHUNK_SIZE:-16}"
 SELECTOR_MAX_KMEANS_FEATURE_GB="${SELECTOR_MAX_KMEANS_FEATURE_GB:-4}"
+THRESHOLDED_SIGN_THRESHOLD="${THRESHOLDED_SIGN_THRESHOLD:-0.01}"
 COMPARE_SPLIT="${COMPARE_SPLIT:-test}"
 COMPARE_LIMIT="${COMPARE_LIMIT:-$DEFAULT_COMPARE_LIMIT}"
 PREPARE_DATA="${PREPARE_DATA:-1}"
@@ -194,8 +195,10 @@ method_label() {
     random) echo "random" ;;
     kmeans) echo "kmeans" ;;
     kmeans-sign) echo "kmeans+sign" ;;
+    kmeans-thresholded-sign) echo "kmeans+thresholded_sign" ;;
     kmeans-srp) echo "kmeans+sparse_random" ;;
     kmeans-srp-sign) echo "kmeans+sparse_random+sign" ;;
+    kmeans-srp-thresholded-sign) echo "kmeans+sparse_random+thresholded_sign" ;;
     *)
       echo "Unknown method suffix: $1" >&2
       return 2
@@ -206,7 +209,7 @@ method_label() {
 selector_path() {
   case "$1" in
     random) echo "selectors/random.py" ;;
-    kmeans | kmeans-sign | kmeans-srp | kmeans-srp-sign)
+    kmeans | kmeans-sign | kmeans-thresholded-sign | kmeans-srp | kmeans-srp-sign | kmeans-srp-thresholded-sign)
       echo "selectors/lora_ntk_kmeans.py"
       ;;
     *)
@@ -224,6 +227,12 @@ append_selector_args() {
     kmeans-sign)
       CMD+=(--selector-transformation sign)
       ;;
+    kmeans-thresholded-sign)
+      CMD+=(
+        --selector-transformation thresholded_sign
+        --selector-thresholded-sign-threshold "$THRESHOLDED_SIGN_THRESHOLD"
+      )
+      ;;
     kmeans-srp)
       CMD+=(
         --selector-projection sparse_random
@@ -233,6 +242,14 @@ append_selector_args() {
     kmeans-srp-sign)
       CMD+=(
         --selector-transformation sign
+        --selector-projection sparse_random
+        --selector-projection-components "$PROJECTION_COMPONENTS"
+      )
+      ;;
+    kmeans-srp-thresholded-sign)
+      CMD+=(
+        --selector-transformation thresholded_sign
+        --selector-thresholded-sign-threshold "$THRESHOLDED_SIGN_THRESHOLD"
         --selector-projection sparse_random
         --selector-projection-components "$PROJECTION_COMPONENTS"
       )
@@ -263,6 +280,7 @@ write_manifest() {
 - Projection components: \`${PROJECTION_COMPONENTS}\`
 - Selector projection chunk size: \`${SELECTOR_PROJECTION_CHUNK_SIZE}\`
 - Selector max k-means feature GiB: \`${SELECTOR_MAX_KMEANS_FEATURE_GB}\`
+- Thresholded sign threshold: \`${THRESHOLDED_SIGN_THRESHOLD}\`
 - Compare split: \`${COMPARE_SPLIT}\`
 - Compare limit: \`${COMPARE_LIMIT}\`
 - Run prefix: \`${RUN_PREFIX}\`

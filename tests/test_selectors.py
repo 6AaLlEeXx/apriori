@@ -16,6 +16,7 @@ from feature_pipeline import (
 )
 from kernel.data import PairRecord
 from selector_algorithms import select_rows_by_feature_matrix
+from transformations import apply_transformations
 
 
 _SELECTOR_PATH = (
@@ -158,6 +159,32 @@ def test_prepare_feature_matrix_applies_transformations_and_projection() -> None
     assert context["selector_feature_pipeline"]["projection"]["output_dim"] == 2
 
 
+def test_thresholded_sign_uses_default_threshold() -> None:
+    features = np.asarray(
+        [[-0.02, -0.005, 0.0, 0.005, 0.02]],
+        dtype=np.float32,
+    )
+
+    transformed = apply_transformations(features, ["thresholded_sign"])
+
+    assert np.asarray(transformed).tolist() == [[-1.0, 0.0, 0.0, 0.0, 1.0]]
+
+
+def test_thresholded_sign_accepts_custom_threshold() -> None:
+    features = np.asarray(
+        [[-0.2, -0.05, 0.05, 0.2]],
+        dtype=np.float32,
+    )
+
+    transformed = apply_transformations(
+        features,
+        ["thresholded-sign"],
+        params={"thresholded-sign": {"threshold": 0.1}},
+    )
+
+    assert np.asarray(transformed).tolist() == [[-1.0, 0.0, 0.0, 1.0]]
+
+
 def test_prepare_feature_matrix_rejects_large_unprojected_kmeans() -> None:
     features = np.zeros((4, 8), dtype=np.float32)
 
@@ -244,3 +271,33 @@ def test_prepare_lora_ntk_feature_matrix_reuses_shared_raw_cache(
     assert first_context["selector_feature_cache"]["hit"] is False
     assert second_context["selector_feature_cache"]["scope"] == "shared"
     assert second_context["selector_feature_cache"]["hit"] is True
+
+
+def test_prepare_lora_ntk_feature_matrix_records_transformation_params(
+    tmp_path: Path,
+) -> None:
+    rows = [{"prompt": "a", "completion": "x"}]
+    backend = FakeBackend({"a": [0.001, 0.02]})
+    context: dict[str, Any] = {
+        "base_model": "toy-model",
+        "mlx_args": {"num_layers": 1, "lora_parameters": {"rank": 1}},
+        "shared_feature_cache_root": str(tmp_path / "cache"),
+        "selector_transformations": ["thresholded_sign"],
+        "selector_transformation_params": {
+            "thresholded_sign": {"threshold": 0.01}
+        },
+    }
+
+    prepared = prepare_lora_ntk_feature_matrix(
+        rows,
+        context=context,
+        backend=backend,
+    )
+
+    assert np.asarray(prepared).tolist() == [[0.0, 1.0]]
+    assert context["selector_feature_pipeline"]["transformations"] == [
+        "thresholded_sign"
+    ]
+    assert context["selector_feature_pipeline"]["transformation_params"] == {
+        "thresholded_sign": {"threshold": 0.01}
+    }
