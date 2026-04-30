@@ -62,7 +62,7 @@ py-modules = [
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["cli*", "kernel*", "projection*", "transformations*"]
+include = ["cli*", "kernel*", "projection*", "reporting*", "transformations*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

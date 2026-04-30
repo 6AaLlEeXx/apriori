@@ -320,3 +320,6 @@ def test_make_adapter_comparison_report_aggregates_methods(tmp_path: Path) -> No
     assert "random" in report
     assert "kmeans+sparse_random+sign" in report
     assert "Adapter RMSE" in rendered
+    assert "Visualizations" in report
+    assert (tmp_path / "assets" / "adapter_comparisons" / "method_delta_pearson.svg").exists()
+    assert (tmp_path / "assets" / "adapter_comparisons" / "method_adapter_rmse.svg").exists()

@@ -28,6 +28,7 @@ def create_feature_backend(config: KernelRunConfig) -> Any:
             base_model=config.base_model,
             adapter_path=config.adapter_path,
             leaf_filter=str(config.backend_args.get("leaf_filter", "lora_b_only")),
+            seed=config.seed,
         )
     raise ValueError(f"Unknown kernel backend: {config.backend}")
 
@@ -39,6 +40,7 @@ class LoRANTKFeatureBackend:
         adapter_path: str | None = None,
         leaf_filter: str = "lora_b_only",
         adapter_config: dict[str, Any] | None = None,
+        seed: int | None = None,
     ) -> None:
         if adapter_config is None:
             if adapter_path is None:
@@ -58,6 +60,8 @@ class LoRANTKFeatureBackend:
         self.model: Any = loaded[0]
         self.tokenizer: Any = loaded[1]
         self.model.freeze()
+        if seed is not None:
+            mx.random.seed(seed)
         linear_to_lora_layers(
             self.model,
             int(adapter_config["num_layers"]),
@@ -89,6 +93,7 @@ class LoRANTKFeatureBackend:
         base_model: str,
         mlx_args: dict[str, Any],
         leaf_filter: str = "lora_b_only",
+        seed: int | None = None,
     ) -> LoRANTKFeatureBackend:
         if "num_layers" not in mlx_args:
             raise ValueError(
@@ -109,6 +114,7 @@ class LoRANTKFeatureBackend:
             base_model=base_model,
             leaf_filter=leaf_filter,
             adapter_config=adapter_config,
+            seed=seed,
         )
 
     def _build_leaf_name_filter(self) -> set[str]:

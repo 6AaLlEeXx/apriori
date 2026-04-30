@@ -4,6 +4,7 @@
     "kernel",
     "selectors",
     "projection",
+    "reporting",
     "transformations",
     "tests",
     "data_prep.py",

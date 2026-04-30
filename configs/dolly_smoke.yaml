@@ -1,0 +1,20 @@
+extends: dolly.yaml
+dataset_name: dolly_smoke
+data_dir: data/dolly_smoke
+test_after_train: false
+run_tags:
+  - mlx-lora
+  - lora
+  - dolly
+  - smoke
+mlx_args:
+  iters: 10
+  num_layers: 2
+  max_seq_length: 256
+  batch_size: 1
+  gradient_accumulation_steps: 1
+  steps_per_report: 5
+  steps_per_eval: 1000
+  val_batches: 2
+  save_every: 10
+notes: Tiny Dolly adapter config for end-to-end orchestration smoke checks.

@@ -14,6 +14,7 @@ from kernel.metrics import evaluate_predictions
 from kernel.scoring import ModelScorer, PairTokens
 from paths import DEFAULT_RESULTS_ROOT, resolve_project_path
 from paths import DEFAULT_REPORTS_ROOT
+from reporting import generate_adapter_comparison_plots, markdown_plot_section
 
 
 class Scorer(Protocol):
@@ -234,18 +235,28 @@ def _selector_details(sampling: dict[str, Any] | None) -> dict[str, Any]:
         "name",
         context.get("selector_projection", "identity"),
     )
+    timing = context.get("selector_timing", {})
+    if not isinstance(timing, dict):
+        timing = {}
 
     return {
         "selector": _basename(sampling.get("selector_path")) or "-",
         "max_examples": sampling.get("max_example"),
         "transformations": transformations,
         "projection": projection_name,
+        "raw_feature_dim": pipeline.get("raw_feature_dim"),
+        "transformed_feature_dim": pipeline.get("transformed_feature_dim"),
         "projection_dim": projection.get(
             "output_dim",
             context.get("selector_projection_components"),
         ),
         "selected_train_examples": sampling.get("selected_train_examples"),
         "original_train_examples": sampling.get("original_train_examples"),
+        "selector_total_seconds": timing.get("total_seconds"),
+        "feature_extraction_seconds": timing.get("feature_extraction_seconds"),
+        "transformation_seconds": timing.get("transformation_seconds"),
+        "projection_seconds": timing.get("projection_seconds"),
+        "kmeans_seconds": timing.get("kmeans_seconds"),
     }
 
 
@@ -425,6 +436,7 @@ def render_adapter_comparison_summary_report(
     datasets: list[str] | None = None,
     methods: list[str] | None = None,
     base_models: list[str] | None = None,
+    plot_markdown: str = "",
 ) -> str:
     dataset_filter = {str(value) for value in datasets or []}
     method_filter = {str(value) for value in methods or []}
@@ -456,8 +468,8 @@ def render_adapter_comparison_summary_report(
     lines = [
         "# Adapter Comparison Summary",
         "",
-        "| Dataset | Base Model | Method | Max N | Projection Dim | Split | Examples | Delta Pearson | Delta RMSE | Sign Acc | Adapter Pearson | Adapter RMSE | Mean Delta Gap | Subset Run |",
-        "| --- | --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Dataset | Base Model | Method | Max N | Raw Dim | Projection Dim | Selector Sec | Split | Examples | Delta Pearson | Delta RMSE | Sign Acc | Adapter Pearson | Adapter RMSE | Mean Delta Gap | Subset Run |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for summary in rows:
         metrics = summary.get("metrics", {})
@@ -472,7 +484,9 @@ def render_adapter_comparison_summary_report(
                     str(summary.get("base_model") or "-").rsplit("/", 1)[-1],
                     str(summary.get("method") or "-"),
                     str(selector_details.get("max_examples") or "-"),
+                    str(selector_details.get("raw_feature_dim") or "-"),
                     str(selector_details.get("projection_dim") or "-"),
+                    _format_float(selector_details.get("selector_total_seconds")),
                     str(summary.get("split") or "-"),
                     str(summary.get("num_examples") or "-"),
                     _format_float(delta.get("pearson")),
@@ -489,7 +503,10 @@ def render_adapter_comparison_summary_report(
 
     if len(lines) == 4:
         lines.extend(["", "_No adapter comparisons found yet._"])
-    return "\n".join(lines) + "\n"
+    report = "\n".join(lines) + "\n"
+    if plot_markdown:
+        report += plot_markdown
+    return report
 
 
 def make_adapter_comparison_report(
@@ -498,15 +515,30 @@ def make_adapter_comparison_report(
     datasets: list[str] | None = None,
     methods: list[str] | None = None,
     base_models: list[str] | None = None,
+    plots: bool = True,
+    assets_dir: str | Path | None = None,
 ) -> Path:
     summaries = collect_adapter_comparison_summaries(output_root=output_root)
+    output_path = resolve_project_path(output_path)
+    plot_markdown = ""
+    if plots:
+        plot_dir = (
+            resolve_project_path(assets_dir)
+            if assets_dir is not None
+            else output_path.parent / "assets" / "adapter_comparisons"
+        )
+        artifacts = generate_adapter_comparison_plots(summaries, plot_dir)
+        plot_markdown = markdown_plot_section(
+            artifacts,
+            report_path=output_path,
+        )
     report = render_adapter_comparison_summary_report(
         summaries,
         datasets=datasets,
         methods=methods,
         base_models=base_models,
+        plot_markdown=plot_markdown,
     )
-    output_path = resolve_project_path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report)
     return output_path

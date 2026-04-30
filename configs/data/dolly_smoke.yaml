@@ -1,0 +1,20 @@
+extends: dolly.yaml
+dataset_name: dolly_smoke
+output_dir: data/dolly_smoke
+source:
+  max_examples: 80
+split:
+  strategy: ratios
+  seed: 42
+  valid_ratio: 0.1
+  test_ratio: 0.1
+  max_examples_per_split:
+    train: 64
+    valid: 8
+    test: 8
+filters:
+  token_supervision:
+    max_seq_length: 256
+metadata:
+  task: generic
+  notes: Tiny Dolly split for end-to-end smoke checks.

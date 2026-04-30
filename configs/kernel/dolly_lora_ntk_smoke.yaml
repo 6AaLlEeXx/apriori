@@ -1,4 +1,6 @@
 extends: dolly_lora_ntk.yaml
+dataset_name: dolly_smoke
+data_dir: data/dolly_smoke
 train_limit: 4
 valid_limit: 2
 test_limit: 2

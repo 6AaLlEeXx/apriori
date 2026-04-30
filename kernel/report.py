@@ -9,6 +9,7 @@ from paths import (
     DEFAULT_REPORTS_ROOT,
     resolve_project_path,
 )
+from reporting import generate_kernel_prediction_plots, markdown_plot_section
 
 
 def _dataset_key(value: str) -> str:
@@ -37,6 +38,7 @@ def collect_kernel_run_summaries(
             summary = json.loads(summary_path.read_text())
         except json.JSONDecodeError:
             continue
+        summary["run_dir"] = str(summary_path.parent)
         eval_path = summary_path.parent / "eval.json"
         if eval_path.exists():
             try:
@@ -98,7 +100,11 @@ def _short_model_name(base_model: Any) -> str:
     return str(base_model).rsplit("/", 1)[-1]
 
 
-def render_kernel_report(summaries: list[dict[str, Any]]) -> str:
+def render_kernel_report(
+    summaries: list[dict[str, Any]],
+    *,
+    plot_markdown: str = "",
+) -> str:
     lines = [
         "# LoRA Kernel Runs",
         "",
@@ -128,16 +134,33 @@ def render_kernel_report(summaries: list[dict[str, Any]]) -> str:
 
     if len(lines) == 4:
         lines.extend(["", "_No tracked kernel runs found yet._"])
-    return "\n".join(lines) + "\n"
+    report = "\n".join(lines) + "\n"
+    if plot_markdown:
+        report += plot_markdown
+    return report
 
 
 def make_kernel_report(
     output_root: str | Path = DEFAULT_KERNEL_RESULTS_ROOT,
     output_path: str | Path = f"{DEFAULT_REPORTS_ROOT}/lora_kernel_runs.md",
+    plots: bool = True,
+    assets_dir: str | Path | None = None,
 ) -> Path:
     rows = collect_kernel_run_summaries(output_root=output_root)
-    report = render_kernel_report(rows)
     output_path = resolve_project_path(output_path)
+    plot_markdown = ""
+    if plots:
+        plot_dir = (
+            resolve_project_path(assets_dir)
+            if assets_dir is not None
+            else output_path.parent / "assets" / "kernel"
+        )
+        artifacts = generate_kernel_prediction_plots(rows, plot_dir)
+        plot_markdown = markdown_plot_section(
+            artifacts,
+            report_path=output_path,
+        )
+    report = render_kernel_report(rows, plot_markdown=plot_markdown)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report)
     return output_path

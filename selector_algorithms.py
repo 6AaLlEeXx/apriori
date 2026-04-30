@@ -11,6 +11,37 @@ from sklearn.metrics import (  # type: ignore[reportMissingTypeStubs]
 
 
 FloatMatrix = NDArray[np.float32]
+DEFAULT_MAX_KMEANS_FEATURE_BYTES = 4 * 1024**3
+
+
+def _matrix_nbytes(features: FloatMatrix) -> int:
+    if features.ndim != 2:
+        return 0
+    return (
+        int(features.shape[0])
+        * int(features.shape[1])
+        * np.dtype(np.float32).itemsize
+    )
+
+
+def _format_gib(byte_count: int) -> str:
+    return f"{byte_count / 1024**3:.2f} GiB"
+
+
+def _validate_kmeans_feature_size(
+    features: FloatMatrix,
+    max_feature_bytes: int,
+) -> None:
+    byte_count = _matrix_nbytes(features)
+    if max_feature_bytes <= 0 or byte_count <= max_feature_bytes:
+        return
+    raise ValueError(
+        "K-means feature matrix is too large for in-memory clustering: "
+        f"shape={tuple(features.shape)}, size={_format_gib(byte_count)}, "
+        f"limit={_format_gib(max_feature_bytes)}. Use a projection such as "
+        "`--selector-projection sparse_random --selector-projection-components "
+        "<dim>`."
+    )
 
 
 def _dedupe_and_fill_nearest_indices(
@@ -31,8 +62,15 @@ def _dedupe_and_fill_nearest_indices(
         selected.append(selected_index)
 
     if len(selected) < count:
-        assigned_centers = centers[labels]
-        assigned_distances = np.linalg.norm(features - assigned_centers, axis=1)
+        assigned_distances = np.empty(features.shape[0], dtype=np.float32)
+        chunk_size = 1024
+        for start in range(0, features.shape[0], chunk_size):
+            end = min(start + chunk_size, features.shape[0])
+            assigned_centers = centers[labels[start:end]]
+            assigned_distances[start:end] = np.linalg.norm(
+                features[start:end] - assigned_centers,
+                axis=1,
+            )
         for index in np.argsort(assigned_distances):
             selected_index = int(index)
             if selected_index in seen:
@@ -52,6 +90,7 @@ def select_kmeans_indices(
     seed: int = 42,
     n_init: int = 10,
     max_iter: int = 300,
+    max_feature_bytes: int = DEFAULT_MAX_KMEANS_FEATURE_BYTES,
 ) -> list[int]:
     if count <= 0:
         return []
@@ -60,6 +99,7 @@ def select_kmeans_indices(
     sample_count = int(features.shape[0])
     if sample_count <= count:
         return list(range(sample_count))
+    _validate_kmeans_feature_size(features, max_feature_bytes)
 
     kmeans = KMeans(
         n_clusters=count,
@@ -87,6 +127,7 @@ def select_rows_by_feature_matrix(
     seed: int = 42,
     n_init: int = 10,
     max_iter: int = 300,
+    max_feature_bytes: int = DEFAULT_MAX_KMEANS_FEATURE_BYTES,
 ) -> list[dict[str, Any]]:
     if max_example is None or len(rows) <= max_example:
         return list(rows)
@@ -96,5 +137,6 @@ def select_rows_by_feature_matrix(
         seed=seed,
         n_init=n_init,
         max_iter=max_iter,
+        max_feature_bytes=max_feature_bytes,
     )
     return [rows[index] for index in selected_indices]

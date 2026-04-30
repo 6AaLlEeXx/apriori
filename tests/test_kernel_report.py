@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
-from kernel.report import make_kernel_comparison_report
+from kernel.report import make_kernel_comparison_report, make_kernel_report
 
 
 def _write_run(
@@ -48,6 +48,22 @@ def _write_run(
                 }
             }
         )
+    )
+
+
+def _write_kernel_predictions(root: Path, run_name: str) -> None:
+    predictions_dir = root / "runs" / run_name / "predictions"
+    predictions_dir.mkdir(parents=True, exist_ok=True)
+    predictions_dir.joinpath("test.jsonl").write_text(
+        "\n".join(
+            json.dumps(row)
+            for row in [
+                {"score_delta": -1.0, "predicted_score_delta": -0.8},
+                {"score_delta": 0.0, "predicted_score_delta": 0.1},
+                {"score_delta": 1.0, "predicted_score_delta": 0.9},
+            ]
+        )
+        + "\n"
     )
 
 
@@ -192,3 +208,28 @@ def test_kernel_comparison_report_filters_dataset_backend_and_model(
     report = output_path.read_text()
     assert "`model-a-dolly`" in report
     assert "`model-b-dolly`" not in report
+
+
+def test_make_kernel_report_writes_prediction_scatter_plot(tmp_path: Path) -> None:
+    output_root = tmp_path / "kernel"
+    _write_run(
+        output_root,
+        run_name="dolly-run",
+        dataset_name="dolly",
+        backend="lora_ntk",
+        train_n=16,
+        test_delta_pearson=0.8,
+    )
+    _write_kernel_predictions(output_root, "dolly-run")
+
+    output_path = tmp_path / "kernel.md"
+    make_kernel_report(output_root=output_root, output_path=output_path)
+
+    report = output_path.read_text()
+    assert "Visualizations" in report
+    assert (
+        tmp_path
+        / "assets"
+        / "kernel"
+        / "ntk_predicted_vs_true_00_dolly-run.svg"
+    ).exists()

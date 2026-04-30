@@ -6,11 +6,13 @@ from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
+import pytest
 
 from feature_pipeline import (
     build_pair_records,
     extract_feature_matrix,
     prepare_feature_matrix,
+    prepare_lora_ntk_feature_matrix,
 )
 from kernel.data import PairRecord
 from selector_algorithms import select_rows_by_feature_matrix
@@ -156,6 +158,40 @@ def test_prepare_feature_matrix_applies_transformations_and_projection() -> None
     assert context["selector_feature_pipeline"]["projection"]["output_dim"] == 2
 
 
+def test_prepare_feature_matrix_rejects_large_unprojected_kmeans() -> None:
+    features = np.zeros((4, 8), dtype=np.float32)
+
+    with pytest.raises(ValueError, match="Unprojected k-means"):
+        prepare_feature_matrix(
+            features,
+            context={
+                "selector_projection": "identity",
+                "selector_max_kmeans_feature_bytes": 16,
+            },
+        )
+
+
+def test_sparse_random_projection_works_under_unprojected_memory_guard() -> None:
+    features = np.asarray(
+        [[-2.0, 0.0, 4.0], [5.0, -0.1, 0.0], [1.0, 2.0, -3.0]],
+        dtype=np.float32,
+    )
+
+    prepared = prepare_feature_matrix(
+        features,
+        context={
+            "seed": 3,
+            "selector_transformations": ["sign"],
+            "selector_projection": "sparse_random",
+            "selector_projection_components": 2,
+            "selector_projection_chunk_size": 1,
+            "selector_max_kmeans_feature_bytes": 1,
+        },
+    )
+
+    assert prepared.shape == (3, 2)
+
+
 def test_extract_feature_matrix_reuses_cache(tmp_path: Path) -> None:
     records = build_pair_records(
         [{"prompt": "a", "completion": "x"}, {"prompt": "b", "completion": "x"}]
@@ -169,3 +205,42 @@ def test_extract_feature_matrix_reuses_cache(tmp_path: Path) -> None:
     assert np.asarray(first).tolist() == [[1.0, 2.0], [3.0, 4.0]]
     assert np.asarray(second).tolist() == [[1.0, 2.0], [3.0, 4.0]]
     assert backend.calls == len(records)
+
+
+def test_prepare_lora_ntk_feature_matrix_reuses_shared_raw_cache(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        {"prompt": "a", "completion": "x"},
+        {"prompt": "b", "completion": "x"},
+    ]
+    backend = FakeBackend({"a": [-1.0, 2.0], "b": [3.0, -4.0]})
+    base_context: dict[str, Any] = {
+        "base_model": "toy-model",
+        "mlx_args": {"num_layers": 1, "lora_parameters": {"rank": 1}},
+        "shared_feature_cache_root": str(tmp_path / "cache"),
+    }
+
+    first_context = dict(base_context)
+    first = prepare_lora_ntk_feature_matrix(
+        rows,
+        context=first_context,
+        backend=backend,
+    )
+    second_context = {
+        **base_context,
+        "selector_transformations": ["sign"],
+    }
+    second = prepare_lora_ntk_feature_matrix(
+        rows,
+        context=second_context,
+        backend=backend,
+    )
+
+    assert np.asarray(first).tolist() == [[-1.0, 2.0], [3.0, -4.0]]
+    assert np.asarray(second).tolist() == [[-1.0, 1.0], [1.0, -1.0]]
+    assert backend.calls == len(rows)
+    assert first_context["selector_feature_cache"]["scope"] == "shared"
+    assert first_context["selector_feature_cache"]["hit"] is False
+    assert second_context["selector_feature_cache"]["scope"] == "shared"
+    assert second_context["selector_feature_cache"]["hit"] is True

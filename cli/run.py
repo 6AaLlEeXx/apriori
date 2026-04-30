@@ -25,6 +25,7 @@ from mlops import (
     write_mlx_runtime_config,
     write_summary,
 )
+from paths import resolve_project_path
 
 
 def parse_args() -> argparse.Namespace:
@@ -96,6 +97,29 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Output dimension for selector projections that need one.",
     )
+    parser.add_argument(
+        "--selector-projection-chunk-size",
+        type=int,
+        default=16,
+        help=(
+            "Rows per chunk for memory-conscious selector projections. "
+            "Defaults to 16."
+        ),
+    )
+    parser.add_argument(
+        "--selector-max-kmeans-feature-gb",
+        type=float,
+        default=4.0,
+        help=(
+            "Maximum unprojected k-means feature matrix size in GiB before "
+            "failing with a projection hint. Use 0 to disable the guard."
+        ),
+    )
+    parser.add_argument(
+        "--selector-debug",
+        action="store_true",
+        help="Print selector feature/cache progress while preparing sampled data.",
+    )
     return parser.parse_args()
 
 
@@ -138,8 +162,27 @@ def main() -> None:
                 "selector_projection_components": (
                     args.selector_projection_components
                 ),
+                "selector_projection_chunk_size": (
+                    args.selector_projection_chunk_size
+                ),
+                "selector_max_kmeans_feature_bytes": int(
+                    args.selector_max_kmeans_feature_gb * 1024**3
+                ),
+                "shared_feature_cache_root": str(
+                    resolve_project_path(config.output_root)
+                    / "selector_feature_cache"
+                ),
+                "selector_debug": args.selector_debug,
             },
         )
+        if args.selector_debug:
+            print(
+                "[selector] selected "
+                f"{sampling_meta['selected_train_examples']}/"
+                f"{sampling_meta['original_train_examples']} training rows; "
+                f"sampled_data_dir={sampling_meta['sampled_data_dir']}",
+                flush=True,
+            )
         metadata["sampling"] = sampling_meta
     metadata["train_data_dir"] = str(train_data_dir)
     write_metadata(paths.metadata_path, metadata)

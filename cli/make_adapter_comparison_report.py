@@ -43,6 +43,16 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional base models to include.",
     )
+    parser.add_argument(
+        "--assets-dir",
+        default=None,
+        help="Directory for generated visualization assets.",
+    )
+    parser.add_argument(
+        "--no-plots",
+        action="store_true",
+        help="Skip visualization asset generation.",
+    )
     return parser.parse_args()
 
 
@@ -54,6 +64,8 @@ def main() -> None:
         datasets=list(args.datasets) if args.datasets else None,
         methods=list(args.methods) if args.methods else None,
         base_models=list(args.base_models) if args.base_models else None,
+        plots=not args.no_plots,
+        assets_dir=args.assets_dir,
     )
     print(f"Wrote adapter comparison report to {output_path}")
 

@@ -25,6 +25,16 @@ def parse_args() -> argparse.Namespace:
         default=f"{DEFAULT_REPORTS_ROOT}/lora_kernel_runs.md",
         help="Markdown output path.",
     )
+    parser.add_argument(
+        "--assets-dir",
+        default=None,
+        help="Directory for generated visualization assets.",
+    )
+    parser.add_argument(
+        "--no-plots",
+        action="store_true",
+        help="Skip visualization asset generation.",
+    )
     return parser.parse_args()
 
 
@@ -33,6 +43,8 @@ def main() -> None:
     output_path = make_kernel_report(
         output_root=args.output_root,
         output_path=args.output,
+        plots=not args.no_plots,
+        assets_dir=args.assets_dir,
     )
     print(f"Wrote kernel report to {output_path}")
 

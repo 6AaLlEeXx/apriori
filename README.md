@@ -167,6 +167,38 @@ The kernel reports separately test whether LoRA-NTK features predict held-out
 adapter score deltas. After the first run works, repeat across multiple `<n>`
 values, datasets, and seeds.
 
+The same workflow can be launched with:
+
+```bash
+./orchestrate.sh
+```
+
+Useful overrides:
+
+- `SMOKE_RUN=1` - use the tiny Dolly smoke configs, one subset size, small
+  comparison/kernel limits, and short training runs.
+- `DEBUG=0` - suppress extra orchestration/selector debug chatter.
+- `PLAN_ONLY=1` - print the commands without executing them.
+- `PREPARE_DATA=0` - reuse existing prepared data instead of rebuilding it.
+- `PREPARED_DATA_DIR=data/dolly` - directory checked when `PREPARE_DATA=0`.
+- `REUSE_EXISTING_ADAPTERS=1` - skip subset adapter training when the exact
+  generated run name already has a completed adapter.
+- `REUSE_EXISTING_COMPARISONS=1` - skip adapter comparisons when the exact
+  comparison output already exists.
+- `METHODS="random kmeans-srp-sign"` - restrict selector methods for a faster
+  check.
+- `N_VALUES="128 512 2000"` - choose the three subset sizes.
+- `BASE_MODEL=<model>` - use a different MLX-LM-compatible model.
+- `TRAIN_FULL=0 FULL_RUN_NAME=<run-name>` - reuse an existing full-data adapter
+  instead of retraining it.
+- `PROJECTION_COMPONENTS=1024` - set sparse random projection dimension.
+- `SELECTOR_PROJECTION_CHUNK_SIZE=16` - rows per sparse projection chunk.
+- `SELECTOR_MAX_KMEANS_FEATURE_GB=4` - unprojected k-means memory guard.
+- `RUN_KERNEL=0` - skip kernel prediction runs.
+- `KERNEL_ADAPTER_RUNS="<run-name> ..."` - restrict kernel prediction to a
+  subset of adapters. By default, every adapter trained by the orchestration is
+  tested.
+
 ## Prepare Data
 
 ```bash
@@ -211,6 +243,9 @@ Flags:
 - `--selector-transformation` - feature transformation before selector clustering; repeatable, defaults to `identity`.
 - `--selector-projection` - feature projection before selector clustering; defaults to `identity`.
 - `--selector-projection-components` - output dimension for projections that need one.
+- `--selector-projection-chunk-size` - rows per chunk for memory-conscious selector projections; defaults to `16`.
+- `--selector-max-kmeans-feature-gb` - maximum unprojected k-means feature matrix size before failing with a projection hint; defaults to `4`.
+- `--selector-debug` - print selector feature/cache progress while preparing sampled data.
 
 Run-time subsampling keeps the full prepared dataset untouched and materializes
 the selected train split under the run directory:
@@ -250,6 +285,18 @@ The LoRA-NTK k-means selector extracts gradient features from the configured
 base model and LoRA settings, applies the requested feature transformations and
 projection, clusters the train split into `--max-examples` clusters, and keeps
 the nearest real row to each center.
+
+Raw LoRA-NTK selector features are cached under
+`results/selector_feature_cache/` by default. The cache key includes the base
+model, seed, LoRA feature settings, and train-row content, so k-means variants
+such as `kmeans`, `kmeans+sign`, `kmeans+sparse_random`, and
+`kmeans+sparse_random+sign` reuse the same expensive raw feature matrix while
+still applying their own transformation/projection steps.
+
+For large train splits, unprojected LoRA-NTK k-means is usually not practical:
+the raw feature matrix can be tens of GiB. The runner fails early when the
+unprojected matrix exceeds `--selector-max-kmeans-feature-gb`; use sparse random
+projection for full-size runs.
 
 The run writes:
 
@@ -390,6 +437,8 @@ Flags:
 
 - `--output-root` - kernel results root.
 - `--output` - markdown output path.
+- `--assets-dir` - directory for generated visualization assets.
+- `--no-plots` - skip visualization generation.
 
 ### Adapter Comparison Report
 
@@ -404,6 +453,8 @@ Flags:
 - `--datasets` - dataset names to include.
 - `--methods` - subset method labels to include.
 - `--base-models` - base models to include.
+- `--assets-dir` - directory for generated visualization assets.
+- `--no-plots` - skip visualization generation.
 
 ### Kernel Comparison Report
 
