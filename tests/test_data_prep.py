@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import sys
 
 import pytest
 
 import data_prep as data_prep
+from cli.prepare_data import main as prepare_data_cli_main
 from data_prep import (
     TokenSupervisionFilter,
     WriteFilters,
@@ -416,6 +418,56 @@ mapping:
 
     with pytest.raises(ValueError, match="token_supervision.enabled"):
         prepare_dataset_from_config(config_path, tokenizer_model="fake-model")
+
+
+def test_prepare_data_cli_ignores_base_model_without_token_filter(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    source_path = tmp_path / "records.jsonl"
+    output_dir = tmp_path / "prepared"
+    _write_jsonl(
+        source_path,
+        [
+            {"prompt": "p0", "completion": "c0"},
+            {"prompt": "p1", "completion": "c1"},
+            {"prompt": "p2", "completion": "c2"},
+        ],
+    )
+    config_path = tmp_path / "data.yaml"
+    config_path.write_text(
+        f"""
+dataset_name: no_token_filter
+output_dir: {output_dir}
+source:
+  type: jsonl
+  path: {source_path}
+split:
+  strategy: train_valid
+mapping:
+  type: template
+  prompt_template: "{{prompt}}"
+  completion_template: "{{completion}}"
+"""
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "mlx-lora-prepare-data",
+            "--config",
+            str(config_path),
+            "--base-model",
+            "fake-model",
+        ],
+    )
+
+    prepare_data_cli_main()
+
+    captured = capsys.readouterr()
+    assert "Wrote no_token_filter splits" in captured.out
+    assert (output_dir / "train.jsonl").exists()
 
 
 def test_missing_template_field_reports_field_name(tmp_path) -> None:

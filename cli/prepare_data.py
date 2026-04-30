@@ -33,19 +33,33 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--base-model",
         default=None,
-        help="Alias for --tokenizer-model, for consistency with training CLIs.",
+        help=(
+            "Alias for --tokenizer-model when token supervision is enabled; "
+            "ignored otherwise for consistency with training CLIs."
+        ),
     )
     return parser.parse_args()
+
+
+def token_supervision_enabled(config: dict) -> bool:
+    filters = config.get("filters")
+    if not isinstance(filters, dict):
+        return False
+    token_filter = filters.get("token_supervision")
+    return isinstance(token_filter, dict) and bool(token_filter.get("enabled"))
 
 
 def main() -> None:
     args = parse_args()
     config = load_data_prep_config(args.config)
+    tokenizer_model = args.tokenizer_model
+    if args.base_model is not None and token_supervision_enabled(config):
+        tokenizer_model = args.base_model
     counts = prepare_dataset_from_config(
         args.config,
         output_dir=args.output_dir,
         seed=args.seed,
-        tokenizer_model=args.base_model or args.tokenizer_model,
+        tokenizer_model=tokenizer_model,
     )
     dataset_name = config.get("dataset_name", "dataset")
     output_dir = args.output_dir or config.get("output_dir") or f"data/{dataset_name}"
