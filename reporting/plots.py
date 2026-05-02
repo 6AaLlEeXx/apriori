@@ -115,6 +115,29 @@ def _positive_max(values: list[float]) -> float:
     return high if high > 0 else 1.0
 
 
+def _estimated_text_width(value: Any, font_size: float) -> float:
+    """Approximate Arial text width for sizing plain SVG canvases."""
+    width = 0.0
+    for char in str(value):
+        if char in "ilI1.,:;|! ":
+            width += 0.28 * font_size
+        elif char in "mwMW@#%&":
+            width += 0.86 * font_size
+        elif char in "-_/":
+            width += 0.34 * font_size
+        else:
+            width += 0.55 * font_size
+    return width * 1.08
+
+
+def _max_text_width(values: list[Any], font_size: float) -> float:
+    return max((_estimated_text_width(value, font_size) for value in values), default=0.0)
+
+
+def _ceil_px(value: float) -> int:
+    return int(math.ceil(value))
+
+
 def _bar_chart(
     rows: list[tuple[str, float]],
     *,
@@ -122,10 +145,11 @@ def _bar_chart(
     y_label: str,
     higher_is_better: bool = True,
 ) -> str:
-    width = max(760, 88 * max(len(rows), 1) + 160)
-    height = 420
     left = 76
     right = 24
+    title_width = _estimated_text_width(title, 18)
+    width = max(760, 88 * max(len(rows), 1) + 160, _ceil_px(left + title_width + 24))
+    height = 420
     top = 54
     bottom = 112
     plot_w = width - left - right
@@ -181,13 +205,17 @@ def _grouped_bar_chart(
 ) -> str:
     method_count = max(len(methods), 1)
     group_count = max(len(groups), 1)
-    width = max(860, group_count * max(108, method_count * 24) + 260)
-    height = 460
     left = 78
-    right = 230
+    base_right = 230
+    base_width = max(860, group_count * max(108, method_count * 24) + 260)
+    plot_w = base_width - left - base_right
+    legend_width = _max_text_width(list(methods), 12)
+    right = max(base_right, _ceil_px(legend_width + 72))
+    title_width = _estimated_text_width(title, 18)
+    width = max(left + plot_w + right, _ceil_px(left + title_width + 24))
+    height = 460
     top = 54
     bottom = 78
-    plot_w = width - left - right
     plot_h = height - top - bottom
     numeric_values = list(values.values())
     ymax = _positive_max(numeric_values)
@@ -265,13 +293,17 @@ def _line_chart(
     x_label: str,
     y_label: str,
 ) -> str:
-    width = 820
-    height = 460
     left = 78
-    right = 180
+    base_width = 820
+    base_right = 180
+    plot_w = base_width - left - base_right
+    legend_width = _max_text_width(list(series), 12)
+    right = max(base_right, _ceil_px(legend_width + 70))
+    title_width = _estimated_text_width(title, 18)
+    width = max(left + plot_w + right, _ceil_px(left + title_width + 24))
+    height = 460
     top = 54
     bottom = 70
-    plot_w = width - left - right
     plot_h = height - top - bottom
     points = [point for values in series.values() for point in values]
     if not points:
@@ -325,10 +357,11 @@ def _scatter_chart(
     y_label: str,
     diagonal: bool = True,
 ) -> str:
-    width = 620
-    height = 540
     left = 78
     right = 36
+    title_width = _estimated_text_width(title, 18)
+    width = max(620, _ceil_px(left + title_width + 24))
+    height = 540
     top = 54
     bottom = 70
     plot_w = width - left - right
@@ -380,9 +413,10 @@ def _scatter_chart(
 
 
 def _empty_svg(title: str) -> str:
+    width = max(620, _ceil_px(32 + _estimated_text_width(title, 18) + 24))
     return "\n".join(
         [
-            '<svg xmlns="http://www.w3.org/2000/svg" width="620" height="220" viewBox="0 0 620 220">',
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="220" viewBox="0 0 {width} 220">',
             '<rect width="100%" height="100%" fill="#ffffff"/>',
             f'<text x="32" y="42" font-family="Arial" font-size="18" font-weight="700">{_escape(title)}</text>',
             '<text x="32" y="92" font-family="Arial" font-size="13" fill="#6b7280">No data available for this plot.</text>',
@@ -767,6 +801,88 @@ def _kernel_series_by_train_size(
     }
 
 
+def _kernel_baseline_rmse_gain_series(
+    summaries: list[dict[str, Any]],
+) -> dict[str, list[tuple[float, float]]]:
+    series: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    for summary in summaries:
+        split_sizes = summary.get("split_sizes") or {}
+        if not isinstance(split_sizes, dict):
+            continue
+        train_size = _number(split_sizes.get("train"))
+        krr_rmse = _number(_nested(summary, "eval.test.delta.rmse"))
+        baseline_rmse = _number(_nested(summary, "baseline.test.delta.rmse"))
+        if baseline_rmse is None:
+            baseline_rmse = _number(summary.get("test_baseline_delta_rmse"))
+        if train_size is None or krr_rmse is None or baseline_rmse is None:
+            continue
+        series[_kernel_adapter_label(summary)].append(
+            (train_size, baseline_rmse - krr_rmse)
+        )
+    return {
+        name: values
+        for name, values in series.items()
+        if values
+    }
+
+
+def _kernel_average_rmse_by_train_size_series(
+    summaries: list[dict[str, Any]],
+) -> dict[str, list[tuple[float, float]]]:
+    grouped: dict[tuple[str, float], list[float]] = defaultdict(list)
+    for summary in summaries:
+        split_sizes = summary.get("split_sizes") or {}
+        if not isinstance(split_sizes, dict):
+            continue
+        train_size = _number(split_sizes.get("train"))
+        krr_rmse = _number(_nested(summary, "eval.test.delta.rmse"))
+        baseline_rmse = _number(_nested(summary, "baseline.test.delta.rmse"))
+        if baseline_rmse is None:
+            baseline_rmse = _number(summary.get("test_baseline_delta_rmse"))
+        if train_size is None:
+            continue
+        if krr_rmse is not None:
+            grouped[("KRR", train_size)].append(krr_rmse)
+        if baseline_rmse is not None:
+            grouped[("Train-mean baseline", train_size)].append(baseline_rmse)
+
+    series: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    for (name, train_size), values in grouped.items():
+        mean = _mean(values)
+        if mean is not None:
+            series[name].append((train_size, mean))
+    return {
+        name: values
+        for name, values in series.items()
+        if values
+    }
+
+
+def _kernel_average_rmse_rows(summaries: list[dict[str, Any]]) -> list[tuple[str, float]]:
+    krr_values: list[float] = []
+    baseline_values: list[float] = []
+    for summary in summaries:
+        krr_rmse = _number(_nested(summary, "eval.test.delta.rmse"))
+        baseline_rmse = _number(_nested(summary, "baseline.test.delta.rmse"))
+        if baseline_rmse is None:
+            baseline_rmse = _number(summary.get("test_baseline_delta_rmse"))
+        if krr_rmse is not None:
+            krr_values.append(krr_rmse)
+        if baseline_rmse is not None:
+            baseline_values.append(baseline_rmse)
+    rows: list[tuple[str, float]] = []
+    krr_mean = _mean(krr_values)
+    baseline_mean = _mean(baseline_values)
+    if krr_mean is not None and baseline_mean is not None:
+        rows.extend(
+            [
+                ("KRR", krr_mean),
+                ("Train-mean baseline", baseline_mean),
+            ]
+        )
+    return rows
+
+
 def generate_kernel_prediction_plots(
     summaries: list[dict[str, Any]],
     output_dir: str | Path,
@@ -819,6 +935,66 @@ def generate_kernel_prediction_plots(
                 "Kernel Train Size: Test Delta RMSE",
                 path,
                 "Held-out score-delta error as the kernel fit set grows; lower is better.",
+            )
+        )
+
+    baseline_gain_series = _kernel_baseline_rmse_gain_series(summaries)
+    if baseline_gain_series:
+        path = output_dir / "kernel_train_size_test_delta_rmse_gain.svg"
+        _write(
+            path,
+            _line_chart(
+                baseline_gain_series,
+                title="Kernel vs Baseline: Test Delta RMSE Gain",
+                x_label="Kernel fit training examples",
+                y_label="Baseline RMSE - KRR RMSE",
+            ),
+        )
+        artifacts.append(
+            PlotArtifact(
+                "Kernel vs Baseline: Test Delta RMSE Gain",
+                path,
+                "Positive values mean KRR has lower test score-delta RMSE than the train-mean baseline.",
+            )
+        )
+
+    average_rmse_by_train_size = _kernel_average_rmse_by_train_size_series(summaries)
+    if average_rmse_by_train_size:
+        path = output_dir / "kernel_train_size_test_delta_rmse_vs_baseline.svg"
+        _write(
+            path,
+            _line_chart(
+                average_rmse_by_train_size,
+                title="Kernel Train Size: Test Delta RMSE vs Baseline",
+                x_label="Kernel fit training examples",
+                y_label="Test Delta RMSE",
+            ),
+        )
+        artifacts.append(
+            PlotArtifact(
+                "Kernel Train Size: Test Delta RMSE vs Baseline",
+                path,
+                "Average test score-delta RMSE for KRR and the train-mean baseline at each kernel fit-set size.",
+            )
+        )
+
+    average_rmse_rows = _kernel_average_rmse_rows(summaries)
+    if average_rmse_rows:
+        path = output_dir / "kernel_average_test_delta_rmse_vs_baseline.svg"
+        _write(
+            path,
+            _bar_chart(
+                average_rmse_rows,
+                title="Average Test Delta RMSE: KRR vs Baseline",
+                y_label="Test Delta RMSE",
+                higher_is_better=False,
+            ),
+        )
+        artifacts.append(
+            PlotArtifact(
+                "Average Test Delta RMSE: KRR vs Baseline",
+                path,
+                "Average test score-delta RMSE for KRR and the train-mean baseline across kernel runs.",
             )
         )
 

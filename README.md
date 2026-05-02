@@ -450,8 +450,9 @@ For train-limit sweeps, `orchestrate.sh` names kernel runs with explicit suffixe
 <adapter-run>-kernel-n64
 ```
 
-The kernel run report includes train-size sweep plots for test delta Pearson and
-test delta RMSE.
+The kernel run report includes train-size sweep plots for test delta Pearson,
+test delta RMSE, direct KRR-vs-baseline test delta RMSE, and KRR RMSE
+improvement over the train-mean score-delta baseline.
 
 ## Reports
 

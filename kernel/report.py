@@ -4,6 +4,9 @@ from pathlib import Path
 from typing import Any
 import json
 
+import numpy as np
+
+from kernel.metrics import mae, pearson_corr, rmse, sign_accuracy, spearman_corr
 from paths import (
     DEFAULT_KERNEL_RESULTS_ROOT,
     DEFAULT_REPORTS_ROOT,
@@ -26,6 +29,125 @@ def _format_float(value: Any, precision: int = 4) -> str:
     return f"{float(value):.{precision}f}"
 
 
+def _read_jsonl(path: str | Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    with Path(path).open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            payload = json.loads(line)
+            if isinstance(payload, dict):
+                rows.append(payload)
+    return rows
+
+
+def _number(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(number):
+        return None
+    return number
+
+
+def _nested(row: dict[str, Any], path: str) -> Any:
+    current: Any = row
+    for part in path.split("."):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    return current
+
+
+def _delta_metrics(true_delta: list[float], pred_delta: list[float]) -> dict[str, float]:
+    true_array = np.asarray(true_delta, dtype=np.float64)
+    pred_array = np.asarray(pred_delta, dtype=np.float64)
+    return {
+        "pearson": pearson_corr(true_array, pred_array),
+        "spearman": spearman_corr(true_array, pred_array),
+        "rmse": rmse(true_array, pred_array),
+        "mae": mae(true_array, pred_array),
+        "sign_accuracy": sign_accuracy(true_array, pred_array),
+    }
+
+
+def _prediction_deltas(rows: list[dict[str, Any]]) -> list[float]:
+    return [
+        number
+        for row in rows
+        for number in [_number(row.get("score_delta"))]
+        if number is not None
+    ]
+
+
+def _attach_kernel_baseline_metrics(summary: dict[str, Any]) -> None:
+    eval_payload = summary.get("eval")
+    if not isinstance(eval_payload, dict):
+        eval_payload = {}
+        summary["eval"] = eval_payload
+
+    run_dir = Path(str(summary.get("run_dir") or ""))
+    predictions_dir = run_dir / "predictions"
+    train_rows: list[dict[str, Any]] = []
+    try:
+        train_rows = _read_jsonl(predictions_dir / "train.jsonl")
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    train_deltas = _prediction_deltas(train_rows)
+
+    baseline_payload: dict[str, Any] = {}
+    if isinstance(eval_payload.get("baseline"), dict):
+        baseline_payload.update(eval_payload["baseline"])
+    if train_deltas:
+        baseline_payload.setdefault("strategy", "train_mean_delta")
+        baseline_payload.setdefault("train_mean_delta", sum(train_deltas) / len(train_deltas))
+    baseline_mean = _number(baseline_payload.get("train_mean_delta"))
+
+    for split in ("train", "valid", "test"):
+        split_eval = eval_payload.get(split)
+        if not isinstance(split_eval, dict):
+            split_eval = {}
+            eval_payload[split] = split_eval
+
+        existing_baseline = split_eval.get("baseline")
+        if isinstance(existing_baseline, dict):
+            baseline_payload[split] = existing_baseline
+            continue
+
+        if baseline_mean is None:
+            continue
+        try:
+            split_rows = _read_jsonl(predictions_dir / f"{split}.jsonl")
+        except (FileNotFoundError, json.JSONDecodeError):
+            continue
+        split_deltas = _prediction_deltas(split_rows)
+        if not split_deltas:
+            continue
+        split_baseline = {
+            "delta": _delta_metrics(
+                split_deltas,
+                [baseline_mean for _ in split_deltas],
+            )
+        }
+        split_eval["baseline"] = split_baseline
+        baseline_payload[split] = split_baseline
+
+    if baseline_payload:
+        summary["baseline"] = baseline_payload
+        for split in ("valid", "test"):
+            baseline_rmse = _number(
+                _nested(baseline_payload, f"{split}.delta.rmse")
+            )
+            krr_rmse = _number(_nested(eval_payload, f"{split}.delta.rmse"))
+            if baseline_rmse is not None:
+                summary[f"{split}_baseline_delta_rmse"] = baseline_rmse
+            if baseline_rmse is not None and krr_rmse is not None:
+                summary[f"{split}_delta_rmse_gain"] = baseline_rmse - krr_rmse
+
+
 def collect_kernel_run_summaries(
     output_root: str | Path = DEFAULT_KERNEL_RESULTS_ROOT,
 ) -> list[dict[str, Any]]:
@@ -45,6 +167,7 @@ def collect_kernel_run_summaries(
                 summary["eval"] = json.loads(eval_path.read_text())
             except json.JSONDecodeError:
                 summary["eval"] = {}
+        _attach_kernel_baseline_metrics(summary)
         summaries.append(summary)
     return summaries
 
@@ -108,10 +231,11 @@ def render_kernel_report(
     lines = [
         "# LoRA Kernel Runs",
         "",
-        "| Run | Base Model | Dataset | Backend | Train N | Feature Dim | Valid Delta Pearson | Test Delta Pearson |",
-        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: |",
+        "| Run | Base Model | Dataset | Backend | Train N | Feature Dim | Valid Delta Pearson | Test Delta Pearson | Test Delta RMSE | Baseline RMSE | RMSE Gain |",
+        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in summaries:
+        test_rmse = _nested(row, "eval.test.delta.rmse")
         lines.append(
             "| "
             + f"`{row.get('run_name', '-')}`"
@@ -129,6 +253,12 @@ def render_kernel_report(
             + _format_float(row.get("valid_delta_pearson"))
             + " | "
             + _format_float(row.get("test_delta_pearson"))
+            + " | "
+            + _format_float(test_rmse)
+            + " | "
+            + _format_float(row.get("test_baseline_delta_rmse"))
+            + " | "
+            + _format_float(row.get("test_delta_rmse_gain"))
             + " |"
         )
 
@@ -184,8 +314,8 @@ def render_kernel_comparison_report(
         "",
         "Selection rule: for each base-model/dataset/backend group, choose the run with the largest train split; break ties by higher test delta Pearson, then by newer run name.",
         "",
-        "| Base Model | Dataset | Backend | Train N | Feature Dim | Test Delta Pearson | Test Delta Spearman | Test RMSE | Test Sign Acc | Test Adapter Pearson | Run |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Base Model | Dataset | Backend | Train N | Feature Dim | Test Delta Pearson | Test Delta Spearman | Test RMSE | Baseline RMSE | RMSE Gain | Test Sign Acc | Test Adapter Pearson | Run |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
 
     explicit_grid = bool(datasets or backends or base_models)
@@ -234,7 +364,7 @@ def render_kernel_comparison_report(
                 + dataset
                 + " | "
                 + backend
-                + " | - | - | - | - | - | - | - | missing |"
+                + " | - | - | - | - | - | - | - | - | - | missing |"
             )
             continue
 
@@ -242,6 +372,8 @@ def render_kernel_comparison_report(
         test_metrics = eval_payload.get("test", {})
         delta = test_metrics.get("delta", {})
         adapter = test_metrics.get("adapter_score", {})
+        baseline_rmse = summary.get("test_baseline_delta_rmse")
+        rmse_gain = summary.get("test_delta_rmse_gain")
         lines.append(
             "| "
             + _short_model_name(summary.get("base_model"))
@@ -259,6 +391,10 @@ def render_kernel_comparison_report(
             + _format_float(delta.get("spearman"))
             + " | "
             + _format_float(delta.get("rmse"))
+            + " | "
+            + _format_float(baseline_rmse)
+            + " | "
+            + _format_float(rmse_gain)
             + " | "
             + _format_float(delta.get("sign_accuracy"))
             + " | "

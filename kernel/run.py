@@ -480,6 +480,7 @@ def _build_prediction_rows(
     base_scores: dict[str, dict[str, Any]],
     adapter_scores: dict[str, dict[str, Any]],
     pred_delta: FloatArray,
+    baseline_delta: float | None = None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for index, record in enumerate(records):
@@ -487,29 +488,36 @@ def _build_prediction_rows(
         adapter_score = float(adapter_scores[record.pair_id]["score"])
         delta = adapter_score - base_score
         predicted_delta = float(pred_delta[index])
-        rows.append(
-            {
-                "pair_id": record.pair_id,
-                "split": record.split,
-                "base_score": base_score,
-                "adapter_score": adapter_score,
-                "score_delta": delta,
-                "predicted_score_delta": predicted_delta,
-                "predicted_adapter_score": base_score + predicted_delta,
-            }
-        )
+        row = {
+            "pair_id": record.pair_id,
+            "split": record.split,
+            "base_score": base_score,
+            "adapter_score": adapter_score,
+            "score_delta": delta,
+            "predicted_score_delta": predicted_delta,
+            "predicted_adapter_score": base_score + predicted_delta,
+        }
+        if baseline_delta is not None:
+            row["baseline_score_delta"] = baseline_delta
+            row["baseline_adapter_score"] = base_score + baseline_delta
+        rows.append(row)
     return rows
 
 
-def _split_eval_payload(rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _split_eval_payload(
+    rows: list[dict[str, Any]],
+    *,
+    delta_key: str = "predicted_score_delta",
+    adapter_key: str = "predicted_adapter_score",
+) -> dict[str, Any]:
     true_delta = np.asarray([row["score_delta"] for row in rows], dtype=np.float64)
     pred_delta = np.asarray(
-        [row["predicted_score_delta"] for row in rows],
+        [row[delta_key] for row in rows],
         dtype=np.float64,
     )
     true_adapter = np.asarray([row["adapter_score"] for row in rows], dtype=np.float64)
     pred_adapter = np.asarray(
-        [row["predicted_adapter_score"] for row in rows],
+        [row[adapter_key] for row in rows],
         dtype=np.float64,
     )
     return evaluate_predictions(
@@ -538,11 +546,19 @@ def _build_report_markdown(
         "",
         "## Split Metrics",
         "",
-        "| Split | Delta Pearson | Delta Spearman | Delta RMSE | Adapter Pearson | Adapter Spearman | Adapter RMSE |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Split | Delta Pearson | Delta Spearman | Delta RMSE | Baseline RMSE | RMSE Gain | Adapter Pearson | Adapter Spearman | Adapter RMSE |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for split in ("train", "valid", "test"):
         metrics = eval_payload[split]
+        baseline = metrics.get("baseline", {})
+        baseline_delta = baseline.get("delta", {})
+        baseline_rmse = baseline_delta.get("rmse")
+        rmse_gain = (
+            baseline_rmse - metrics["delta"]["rmse"]
+            if baseline_rmse is not None
+            else None
+        )
         lines.append(
             "| "
             + split
@@ -552,6 +568,10 @@ def _build_report_markdown(
             + f"{metrics['delta']['spearman']:.4f}"
             + " | "
             + f"{metrics['delta']['rmse']:.4f}"
+            + " | "
+            + (f"{baseline_rmse:.4f}" if baseline_rmse is not None else "-")
+            + " | "
+            + (f"{rmse_gain:.4f}" if rmse_gain is not None else "-")
             + " | "
             + f"{metrics['adapter_score']['pearson']:.4f}"
             + " | "
@@ -635,6 +655,7 @@ def run_kernel_experiment(
         [row["score_delta"] for row in score_rows["train"]],
         dtype=np.float64,
     )
+    baseline_delta = float(np.mean(targets))
     fitted_model, fit_payload = _predict_targets(
         config=runtime_config,
         train_features=train_features,
@@ -667,12 +688,22 @@ def run_kernel_experiment(
             base_scores=base_index,
             adapter_scores=adapter_index,
             pred_delta=pred_delta,
+            baseline_delta=baseline_delta,
         )
         prediction_rows_by_split[split] = prediction_rows
         _write_jsonl(paths.predictions_dir / f"{split}.jsonl", prediction_rows)
         eval_payload[split] = _split_eval_payload(prediction_rows)
+        eval_payload[split]["baseline"] = _split_eval_payload(
+            prediction_rows,
+            delta_key="baseline_score_delta",
+            adapter_key="baseline_adapter_score",
+        )
 
     eval_payload["fit"] = fit_payload
+    eval_payload["baseline"] = {
+        "strategy": "train_mean_delta",
+        "train_mean_delta": baseline_delta,
+    }
 
     report = _build_report_markdown(
         config=runtime_config,
@@ -699,8 +730,21 @@ def run_kernel_experiment(
         "fit": fit_payload,
         "valid_delta_pearson": eval_payload["valid"]["delta"]["pearson"],
         "test_delta_pearson": eval_payload["test"]["delta"]["pearson"],
+        "valid_baseline_delta_rmse": eval_payload["valid"]["baseline"]["delta"][
+            "rmse"
+        ],
+        "test_baseline_delta_rmse": eval_payload["test"]["baseline"]["delta"]["rmse"],
+        "valid_delta_rmse_gain": (
+            eval_payload["valid"]["baseline"]["delta"]["rmse"]
+            - eval_payload["valid"]["delta"]["rmse"]
+        ),
+        "test_delta_rmse_gain": (
+            eval_payload["test"]["baseline"]["delta"]["rmse"]
+            - eval_payload["test"]["delta"]["rmse"]
+        ),
         "valid_adapter_pearson": eval_payload["valid"]["adapter_score"]["pearson"],
         "test_adapter_pearson": eval_payload["test"]["adapter_score"]["pearson"],
+        "baseline": eval_payload["baseline"],
         "report_path": str(paths.report_path),
     }
     write_json(paths.eval_path, eval_payload)

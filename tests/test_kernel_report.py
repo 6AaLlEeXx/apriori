@@ -54,17 +54,21 @@ def _write_run(
 def _write_kernel_predictions(root: Path, run_name: str) -> None:
     predictions_dir = root / "runs" / run_name / "predictions"
     predictions_dir.mkdir(parents=True, exist_ok=True)
-    predictions_dir.joinpath("test.jsonl").write_text(
-        "\n".join(
-            json.dumps(row)
-            for row in [
-                {"score_delta": -1.0, "predicted_score_delta": -0.8},
-                {"score_delta": 0.0, "predicted_score_delta": 0.1},
-                {"score_delta": 1.0, "predicted_score_delta": 0.9},
-            ]
+    rows_by_split = {
+        "train": [
+            {"score_delta": -0.5, "predicted_score_delta": -0.4},
+            {"score_delta": 0.5, "predicted_score_delta": 0.4},
+        ],
+        "test": [
+            {"score_delta": -1.0, "predicted_score_delta": -0.8},
+            {"score_delta": 0.0, "predicted_score_delta": 0.1},
+            {"score_delta": 1.0, "predicted_score_delta": 0.9},
+        ],
+    }
+    for split, rows in rows_by_split.items():
+        predictions_dir.joinpath(f"{split}.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in rows) + "\n"
         )
-        + "\n"
-    )
 
 
 def test_make_kernel_comparison_report_selects_largest_train_split(
@@ -227,11 +231,24 @@ def test_make_kernel_report_writes_prediction_scatter_plot(tmp_path: Path) -> No
 
     report = output_path.read_text()
     assert "Visualizations" in report
+    assert "Baseline RMSE" in report
     assert (
         tmp_path
         / "assets"
         / "kernel"
         / "ntk_predicted_vs_true_00_dolly-run.svg"
+    ).exists()
+    assert (
+        tmp_path
+        / "assets"
+        / "kernel"
+        / "kernel_train_size_test_delta_rmse_vs_baseline.svg"
+    ).exists()
+    assert (
+        tmp_path
+        / "assets"
+        / "kernel"
+        / "kernel_average_test_delta_rmse_vs_baseline.svg"
     ).exists()
 
 

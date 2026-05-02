@@ -126,4 +126,7 @@ results/kernel/runs/<run_name>/
   predictions/{train,valid,test}.jsonl
 ```
 
-The key metrics are Pearson/Spearman correlation, RMSE, MAE, and sign accuracy on score deltas, plus correlation/error metrics on reconstructed adapter scores.
+The key metrics are Pearson/Spearman correlation, RMSE, MAE, and sign accuracy
+on score deltas, plus correlation/error metrics on reconstructed adapter
+scores. Reports also compare KRR against a train-mean score-delta baseline;
+positive RMSE gain means KRR has lower held-out error than that baseline.
