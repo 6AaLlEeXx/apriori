@@ -1,6 +1,6 @@
 # Datasets
 
-This workbench ships with **50 dataset recipes** under `configs/data/` covering instruction-following, reasoning, QA, code, SQL, summarization, classification, medical, multilingual, translation, and tool-use. Every recipe is a single YAML file — no per-dataset Python. You can copy any file and change a few lines to onboard a new dataset.
+This workbench ships with **52 dataset recipes** under `configs/data/` covering instruction-following, reasoning, QA, code, SQL, summarization, classification, medical, multilingual, translation, and tool-use. Every recipe is a single YAML file — no per-dataset Python. You can copy any file and change a few lines to onboard a new dataset.
 
 ## How to use
 
@@ -23,11 +23,18 @@ This writes `train.jsonl`, `valid.jsonl`, `test.jsonl`, and `metadata.json` unde
 | alpaca_gpt4.yaml | vicgalle/alpaca-gpt4 | 52k | Alpaca instructions re-answered by GPT-4. |
 | dolly.yaml (root) | databricks/databricks-dolly-15k | 15k | Original commercial-friendly instructions. |
 
+### Reasoning — mixed (`configs/data/reasoning/`)
+
+| Config | HF source | Size | Notes |
+|---|---|---|---|
+| open_thoughts_114k.yaml | open-thoughts/OpenThoughts-114k | 114k | Synthetic math, science, code, and puzzle reasoning traces. Uses first user/assistant conversation pair. |
+
 ### Reasoning — math (`configs/data/math/`)
 
 | Config | HF source | Size | Notes |
 |---|---|---|---|
 | gsm8k.yaml (root) | openai/gsm8k | 8.5k | Grade-school word problems with `#### N` final answer. |
+| openmathreasoning_cot_60k.yaml | nvidia/OpenMathReasoning | 60k CoT slice | Practical local slice from the 5.7M-row math-reasoning dataset. |
 | metamath.yaml | meta-math/MetaMathQA | 395k | Augmented GSM8K/MATH chains. Subsetted to 50k. |
 | orca_math.yaml | microsoft/orca-math-word-problems-200k | 200k | Orca-style synthetic word-problem reasoning. |
 | mathinstruct.yaml | TIGER-Lab/MathInstruct | 262k | Diverse math instructions. |

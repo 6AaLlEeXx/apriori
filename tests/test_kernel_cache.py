@@ -8,7 +8,7 @@ from numpy.typing import NDArray
 
 from kernel.config import KernelRunConfig
 from kernel.data import PairRecord
-from kernel.run import _extract_features_to_npy, _score_splits_with_cache
+from kernel.run import _extract_features_to_npy, _load_features, _score_splits_with_cache
 from kernel.scoring import PairTokens
 
 
@@ -162,3 +162,57 @@ def test_kernel_feature_cache_is_shared_across_matching_adapter_configs(
     assert first_path == second_path
     assert first_backend.calls == 1
     assert second_backend.calls == 0
+
+
+def test_kernel_feature_transform_reuses_raw_feature_cache(tmp_path: Path) -> None:
+    adapter = tmp_path / "adapter"
+    _write_adapter(adapter)
+    raw_config = KernelRunConfig(
+        base_model="models/test",
+        output_root=str(tmp_path / "kernel"),
+        adapter_path=str(adapter),
+        backend_args={"leaf_filter": "lora_b_only"},
+    )
+    transformed_config = KernelRunConfig(
+        base_model="models/test",
+        output_root=str(tmp_path / "kernel"),
+        adapter_path=str(adapter),
+        backend_args={
+            "leaf_filter": "lora_b_only",
+            "feature_transform": "thresholded_sign",
+            "threshold": 0.1,
+        },
+    )
+    records = _records()["test"]
+    raw_backend = FakeFeatureBackend()
+    transformed_backend = FakeFeatureBackend()
+
+    raw_path, _ = _extract_features_to_npy(
+        config=raw_config,
+        backend=raw_backend,
+        records=records,
+    )
+    transformed_path, _ = _extract_features_to_npy(
+        config=transformed_config,
+        backend=transformed_backend,
+        records=records,
+    )
+
+    assert raw_path == transformed_path
+    assert raw_backend.calls == 1
+    assert transformed_backend.calls == 0
+
+
+def test_kernel_load_features_applies_thresholded_sign(tmp_path: Path) -> None:
+    path = tmp_path / "features.npy"
+    np.save(path, np.asarray([[-0.2, -0.05, 0.05, 0.2]], dtype=np.float32))
+    config = KernelRunConfig(
+        backend_args={
+            "feature_transform": "thresholded_sign",
+            "threshold": 0.1,
+        },
+    )
+
+    features = _load_features(path, config)
+
+    assert np.asarray(features).tolist() == [[-1.0, 0.0, 0.0, 1.0]]

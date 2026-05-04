@@ -185,16 +185,31 @@ def _selection_key(summary: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
+def _feature_label(summary: dict[str, Any]) -> str:
+    direct = summary.get("feature_transform_label")
+    if direct:
+        return str(direct)
+    feature_transform = summary.get("feature_transform")
+    if isinstance(feature_transform, dict) and feature_transform.get("label"):
+        return str(feature_transform["label"])
+    eval_payload = summary.get("eval")
+    if isinstance(eval_payload, dict):
+        eval_transform = eval_payload.get("feature_transform")
+        if isinstance(eval_transform, dict) and eval_transform.get("label"):
+            return str(eval_transform["label"])
+    return "raw"
+
+
 def select_primary_kernel_runs(
     summaries: list[dict[str, Any]],
     datasets: list[str] | None = None,
     backends: list[str] | None = None,
     base_models: list[str] | None = None,
-) -> dict[tuple[str, str, str], dict[str, Any]]:
+) -> dict[tuple[str, str, str, str], dict[str, Any]]:
     dataset_filter = {_dataset_key(value) for value in datasets or []}
     backend_filter = {str(value) for value in backends or []}
     model_filter = {_model_key(value) for value in base_models or []}
-    selected: dict[tuple[str, str, str], dict[str, Any]] = {}
+    selected: dict[tuple[str, str, str, str], dict[str, Any]] = {}
 
     for summary in summaries:
         if str(summary.get("status", "completed")).lower() != "completed":
@@ -209,7 +224,7 @@ def select_primary_kernel_runs(
             continue
         if model_filter and model not in model_filter:
             continue
-        key = (model, dataset_key, backend)
+        key = (model, dataset_key, backend, _feature_label(summary))
         previous = selected.get(key)
         if previous is None or _selection_key(summary) > _selection_key(previous):
             selected[key] = summary
@@ -231,8 +246,8 @@ def render_kernel_report(
     lines = [
         "# LoRA Kernel Runs",
         "",
-        "| Run | Base Model | Dataset | Backend | Train N | Feature Dim | Valid Delta Pearson | Test Delta Pearson | Test Delta RMSE | Baseline RMSE | RMSE Gain |",
-        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Run | Base Model | Dataset | Backend | Feature | Train N | Feature Dim | Valid Delta Pearson | Test Delta Pearson | Test Delta RMSE | Baseline RMSE | RMSE Gain |",
+        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in summaries:
         test_rmse = _nested(row, "eval.test.delta.rmse")
@@ -245,6 +260,8 @@ def render_kernel_report(
             + str(row.get("dataset_name", "-"))
             + " | "
             + str(row.get("backend", "-"))
+            + " | "
+            + _feature_label(row)
             + " | "
             + str(_train_size(row))
             + " | "
@@ -312,10 +329,10 @@ def render_kernel_comparison_report(
     lines = [
         "# Kernel Comparison",
         "",
-        "Selection rule: for each base-model/dataset/backend group, choose the run with the largest train split; break ties by higher test delta Pearson, then by newer run name.",
+        "Selection rule: for each base-model/dataset/backend/feature group, choose the run with the largest train split; break ties by higher test delta Pearson, then by newer run name.",
         "",
-        "| Base Model | Dataset | Backend | Train N | Feature Dim | Test Delta Pearson | Test Delta Spearman | Test RMSE | Baseline RMSE | RMSE Gain | Test Sign Acc | Test Adapter Pearson | Run |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Base Model | Dataset | Backend | Feature | Train N | Feature Dim | Test Delta Pearson | Test Delta Spearman | Test RMSE | Baseline RMSE | RMSE Gain | Test Sign Acc | Test Adapter Pearson | Run |",
+        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
 
     explicit_grid = bool(datasets or backends or base_models)
@@ -328,6 +345,7 @@ def render_kernel_comparison_report(
             }
         )
         backend_values = backends or sorted({key[2] for key in selected})
+        feature_values = sorted({key[3] for key in selected}) or ["raw"]
         if not model_values:
             model_values = ["-"]
         if not dataset_values:
@@ -335,10 +353,11 @@ def render_kernel_comparison_report(
         if not backend_values:
             backend_values = ["-"]
         render_keys = [
-            (_model_key(model), dataset, _dataset_key(dataset), backend)
+            (_model_key(model), dataset, _dataset_key(dataset), backend, feature)
             for model in model_values
             for dataset in dataset_values
             for backend in backend_values
+            for feature in feature_values
         ]
     else:
         render_keys = [
@@ -347,15 +366,16 @@ def render_kernel_comparison_report(
                 str(summary.get("dataset_name", key[1])),
                 key[1],
                 key[2],
+                key[3],
             )
             for key, summary in selected.items()
         ]
         render_keys.sort(
-            key=lambda item: (_short_model_name(item[0]), item[1], item[3])
+            key=lambda item: (_short_model_name(item[0]), item[1], item[3], item[4])
         )
 
-    for model, dataset, dataset_key, backend in render_keys:
-        summary = selected.get((model, dataset_key, backend))
+    for model, dataset, dataset_key, backend, feature in render_keys:
+        summary = selected.get((model, dataset_key, backend, feature))
         if summary is None:
             lines.append(
                 "| "
@@ -364,6 +384,8 @@ def render_kernel_comparison_report(
                 + dataset
                 + " | "
                 + backend
+                + " | "
+                + feature
                 + " | - | - | - | - | - | - | - | - | - | missing |"
             )
             continue
@@ -381,6 +403,8 @@ def render_kernel_comparison_report(
             + str(summary.get("dataset_name", dataset))
             + " | "
             + backend
+            + " | "
+            + _feature_label(summary)
             + " | "
             + str(_train_size(summary))
             + " | "

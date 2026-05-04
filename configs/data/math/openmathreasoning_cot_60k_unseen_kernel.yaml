@@ -1,0 +1,41 @@
+dataset_name: openmathreasoning_cot_60k_unseen_kernel
+source_dataset: nvidia/OpenMathReasoning
+output_dir: data/openmathreasoning_cot_60k_unseen_kernel
+source:
+  type: hf
+  path: nvidia/OpenMathReasoning
+  split: "cot[60000:260000]"
+split:
+  strategy: ratios
+  seed: 4242
+  valid_ratio: 0.12
+  test_ratio: 0.12
+  max_examples_per_split:
+    train: 8192
+    valid: 2048
+    test: 32768
+mapping:
+  type: template
+  prompt_template: |-
+    Solve the following math problem step by step. Keep the final answer clearly marked.
+
+    Problem:
+    {problem}
+  completion_template: "{generated_solution}"
+filters:
+  max_prompt_chars: 2500
+  max_completion_chars: 8000
+  max_total_chars: 9500
+  exclude_prompt_hashes:
+    sources:
+      - data/openmathreasoning_cot_60k/train.jsonl
+      - data/openmathreasoning_cot_60k/valid.jsonl
+      - data/openmathreasoning_cot_60k/test.jsonl
+  token_supervision:
+    enabled: true
+    tokenizer_model: mlx-community/Qwen3-14B-4bit
+    max_seq_length: 1536
+    min_supervised_tokens: 32
+metadata:
+  task: math_reasoning
+  notes: Leak-free OpenMathReasoning CoT pool for kernel evaluation. Uses a later source slice and excludes prompts already present in the current 60k prepared split.

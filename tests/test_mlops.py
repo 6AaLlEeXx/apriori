@@ -317,6 +317,84 @@ def test_run_cli_dry_run_applies_selector_max_examples(
     assert summary["sampling"] == metadata["sampling"]
 
 
+def test_run_cli_dry_run_scales_subset_iters_to_match_full_exposure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    source_dir = tmp_path / "data"
+    source_dir.mkdir(parents=True)
+    rows = [{"id": i, "prompt": f"p{i}", "completion": f"c{i}"} for i in range(100)]
+    source_dir.joinpath("train.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n"
+    )
+    source_dir.joinpath("valid.jsonl").write_text(
+        json.dumps({"prompt": "v", "completion": "v"}) + "\n"
+    )
+    source_dir.joinpath("test.jsonl").write_text(
+        json.dumps({"prompt": "t", "completion": "t"}) + "\n"
+    )
+    selector_path = tmp_path / "selector.py"
+    selector_path.write_text(
+        "\n".join(
+            [
+                "def select_samples(rows, max_example=None):",
+                "    return rows[:max_example]",
+            ]
+        )
+        + "\n"
+    )
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "dataset_name: toy",
+                "task: generic",
+                f"data_dir: {source_dir}",
+                f"output_root: {tmp_path / 'results'}",
+                "mlx_args:",
+                "  iters: 50",
+                "subset_training:",
+                "  iters_policy: match_full_exposure",
+            ]
+        )
+        + "\n"
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "mlx-lora-run",
+            "--config",
+            str(config_path),
+            "--run-name",
+            "scaled-subset-dry-run",
+            "--sample-selector",
+            str(selector_path),
+            "--max-examples",
+            "10",
+            "--dry-run",
+        ],
+    )
+
+    run_cli_main()
+
+    run_dir = tmp_path / "results" / "runs" / "scaled-subset-dry-run"
+    metadata = json.loads(run_dir.joinpath("metadata.json").read_text())
+    command = run_dir.joinpath("command.txt").read_text()
+    assert "--iters 5" in command
+    assert metadata["mlx_args"]["iters"] == 5
+    assert metadata["subset_training_effective"] == {
+        "iters_policy": "match_full_exposure",
+        "base_iters": 50,
+        "effective_iters": 5,
+        "original_train_examples": 100,
+        "selected_train_examples": 10,
+        "min_iters": 1,
+        "cap_at_full_iters": True,
+    }
+
+
 def test_parse_mlx_log_line_handles_train_val_and_test() -> None:
     train = parse_mlx_log_line(
         "Iter 10: Train loss 2.586, Learning Rate 1.000e-05, "

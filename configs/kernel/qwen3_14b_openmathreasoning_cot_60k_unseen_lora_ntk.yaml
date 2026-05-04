@@ -1,0 +1,7 @@
+extends: qwen3_14b_openmathreasoning_cot_60k_lora_ntk.yaml
+dataset_name: openmathreasoning_cot_60k_unseen_kernel
+data_dir: data/openmathreasoning_cot_60k_unseen_kernel
+source_config:
+  data: configs/data/math/openmathreasoning_cot_60k_unseen_kernel.yaml
+  training: configs/qwen3_14b_openmathreasoning_cot_60k_unseen_kernel_eval.yaml
+notes: Leak-free LoRA-NTK score-delta KRR for Qwen3-14B OpenMathReasoning adapters on unseen prompts.

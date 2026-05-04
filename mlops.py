@@ -49,6 +49,7 @@ class LoraRunConfig:
     test_after_train: bool = True
     run_tags: list[str] = field(default_factory=list)
     mlx_args: dict[str, Any] = field(default_factory=dict)
+    subset_training: dict[str, Any] = field(default_factory=dict)
     extra_args: list[str] = field(default_factory=list)
     evaluation: dict[str, Any] = field(default_factory=dict)
     notes: str | None = None
@@ -198,6 +199,7 @@ def load_lora_run_config(path: str | Path) -> LoraRunConfig:
     merged["run_tags"] = [str(tag) for tag in merged.get("run_tags", [])]
     merged["extra_args"] = [str(arg) for arg in merged.get("extra_args", [])]
     merged["mlx_args"] = dict(merged.get("mlx_args", {}))
+    merged["subset_training"] = dict(merged.get("subset_training", {}))
     merged["evaluation"] = dict(merged.get("evaluation", {}))
     return LoraRunConfig(**merged)
 
@@ -303,6 +305,7 @@ def build_run_metadata(
         "evaluation": config.evaluation,
         "notes": config.notes,
         "mlx_args": config.mlx_args,
+        "subset_training": config.subset_training,
         "extra_args": config.extra_args,
     }
 

@@ -1,0 +1,39 @@
+dataset_name: open_thoughts_114k
+source_dataset: open-thoughts/OpenThoughts-114k
+output_dir: data/open_thoughts_114k
+source:
+  type: hf
+  path: open-thoughts/OpenThoughts-114k
+  split: train
+split:
+  strategy: ratios
+  seed: 42
+  valid_ratio: 0.1
+  test_ratio: 0.1
+mapping:
+  type: template
+  computed_fields:
+    user_message:
+      first_non_empty:
+        - conversations.0.value
+    assistant_message:
+      first_non_empty:
+        - conversations.1.value
+  prompt_template: |-
+    {system}
+
+    User:
+    {user_message}
+  completion_template: "{assistant_message}"
+filters:
+  max_prompt_chars: 5000
+  max_completion_chars: 9000
+  max_total_chars: 12000
+  token_supervision:
+    enabled: true
+    tokenizer_model: mlx-community/Qwen3-8B-4bit
+    max_seq_length: 2048
+    min_supervised_tokens: 32
+metadata:
+  task: reasoning
+  notes: OpenThoughts-114k default split. Uses the first user/assistant conversation pair and preserves the dataset system instruction in the prompt.

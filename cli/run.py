@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+from math import ceil
 from pathlib import Path
 import sys
+from typing import Any
 
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
@@ -15,6 +17,7 @@ from mlops import (
     build_summary,
     build_test_command,
     build_train_command,
+    LoraRunConfig,
     load_lora_run_config,
     prepare_sampled_data_dir,
     prepare_run,
@@ -26,6 +29,58 @@ from mlops import (
     write_summary,
 )
 from paths import resolve_project_path
+
+
+SUBSET_ITERS_POLICIES = {
+    "match_full_exposure",
+    "match_full_passes",
+    "per_example",
+}
+
+
+def _apply_subset_training_policy(
+    config: LoraRunConfig,
+    sampling_meta: dict[str, Any],
+) -> tuple[LoraRunConfig, dict[str, Any] | None]:
+    policy = str(config.subset_training.get("iters_policy", "none")).strip().lower()
+    if policy in {"", "none", "fixed"}:
+        return config, None
+    if policy not in SUBSET_ITERS_POLICIES:
+        raise ValueError(
+            "`subset_training.iters_policy` must be one of "
+            f"{sorted(SUBSET_ITERS_POLICIES | {'none', 'fixed'})}; got {policy!r}."
+        )
+
+    base_iters = int(config.mlx_args.get("iters") or 0)
+    original_examples = int(sampling_meta.get("original_train_examples") or 0)
+    selected_examples = int(sampling_meta.get("selected_train_examples") or 0)
+    if base_iters <= 0 or original_examples <= 0 or selected_examples <= 0:
+        return config, None
+
+    min_iters = int(config.subset_training.get("min_iters", 1) or 1)
+    if min_iters < 1:
+        raise ValueError("`subset_training.min_iters` must be at least 1.")
+    cap_at_full = bool(config.subset_training.get("cap_at_full_iters", True))
+
+    scaled_iters = max(
+        min_iters,
+        ceil(base_iters * selected_examples / original_examples),
+    )
+    if cap_at_full:
+        scaled_iters = min(base_iters, scaled_iters)
+
+    mlx_args = dict(config.mlx_args)
+    mlx_args["iters"] = scaled_iters
+    details = {
+        "iters_policy": policy,
+        "base_iters": base_iters,
+        "effective_iters": scaled_iters,
+        "original_train_examples": original_examples,
+        "selected_train_examples": selected_examples,
+        "min_iters": min_iters,
+        "cap_at_full_iters": cap_at_full,
+    }
+    return replace(config, mlx_args=mlx_args), details
 
 
 def parse_args() -> argparse.Namespace:
@@ -140,20 +195,9 @@ def main() -> None:
     run_name = args.run_name or build_run_name(config)
     paths = prepare_run(config, run_name)
 
-    save_lora_run_config(config, paths.resolved_config_path)
-    metadata = build_run_metadata(
-        config=config,
-        paths=paths,
-        config_source=args.config,
-        status="prepared",
-    )
-    write_metadata(paths.metadata_path, metadata)
-    write_mlx_runtime_config(
-        paths.mlx_config_path,
-        build_mlx_config_payload(config),
-    )
-
     train_data_dir = config.data_dir
+    sampling_meta = None
+    subset_training_meta = None
     if args.sample_selector:
         train_data_dir, sampling_meta = prepare_sampled_data_dir(
             source_data_dir=config.data_dir,
@@ -197,9 +241,28 @@ def main() -> None:
                 f"sampled_data_dir={sampling_meta['sampled_data_dir']}",
                 flush=True,
             )
+        config, subset_training_meta = _apply_subset_training_policy(
+            config,
+            sampling_meta,
+        )
+
+    save_lora_run_config(config, paths.resolved_config_path)
+    metadata = build_run_metadata(
+        config=config,
+        paths=paths,
+        config_source=args.config,
+        status="prepared",
+    )
+    if sampling_meta is not None:
         metadata["sampling"] = sampling_meta
+    if subset_training_meta is not None:
+        metadata["subset_training_effective"] = subset_training_meta
     metadata["train_data_dir"] = str(train_data_dir)
     write_metadata(paths.metadata_path, metadata)
+    write_mlx_runtime_config(
+        paths.mlx_config_path,
+        build_mlx_config_payload(config),
+    )
 
     train_command = build_train_command(config, paths, data_dir=train_data_dir)
     write_command(paths.command_path, train_command)

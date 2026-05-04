@@ -1,0 +1,11 @@
+extends: samsum_lora_ntk.yaml
+backend_args:
+  leaf_filter: lora_b_only
+  feature_transform: thresholded_sign
+  threshold: 0.1
+run_tags:
+  - mlx-lora
+  - kernel
+  - generated
+  - thresholded-sign
+notes: Generated-style LoRA-NTK score-delta kernel config for SAMSum with thresholded-sign gradient features.

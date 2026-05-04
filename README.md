@@ -205,6 +205,8 @@ Useful overrides:
 - `SELECTOR_PROJECTION_CHUNK_SIZE=16` - rows per sparse projection chunk.
 - `SELECTOR_MAX_KMEANS_FEATURE_GB=4` - unprojected k-means memory guard.
 - `RUN_KERNEL=0` - skip kernel prediction runs.
+- `KERNEL_CONFIGS="<config-a> <config-b>"` - run multiple kernel variants for
+  each adapter/train-limit pair, for example raw and thresholded-sign features.
 - `KERNEL_ADAPTER_RUNS="<run-name> ..."` - restrict kernel prediction to a
   subset of adapters. By default, every adapter trained by the orchestration is
   tested.
@@ -235,7 +237,7 @@ directory, usually `data/<dataset>/`.
 
 To add a normal supervised dataset, add one YAML file under `configs/data/` with `source`, `split`, `mapping`, and optional `filters`. You should only need Python for cases that cannot be represented as row templates or source composition.
 
-**50 ready-to-use dataset recipes** (instruction, math, commonsense, QA, code, SQL, summarization, classification, medical, multilingual, translation, tools) ship under `configs/data/<category>/`. See [docs/datasets.md](docs/datasets.md) for the full catalog, schema reference, and mapping cookbook.
+**52 ready-to-use dataset recipes** (instruction, math, mixed reasoning, commonsense, QA, code, SQL, summarization, classification, medical, multilingual, translation, tools) ship under `configs/data/<category>/`. See [docs/datasets.md](docs/datasets.md) for the full catalog, schema reference, and mapping cookbook.
 
 ## Train Adapters
 

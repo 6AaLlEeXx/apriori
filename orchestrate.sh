@@ -42,6 +42,7 @@ DATASET="${DATASET:-$DEFAULT_DATASET}"
 DATA_CONFIG="${DATA_CONFIG:-$DEFAULT_DATA_CONFIG}"
 TRAIN_CONFIG="${TRAIN_CONFIG:-$DEFAULT_TRAIN_CONFIG}"
 KERNEL_CONFIG="${KERNEL_CONFIG:-$DEFAULT_KERNEL_CONFIG}"
+KERNEL_CONFIGS="${KERNEL_CONFIGS:-$KERNEL_CONFIG}"
 BASE_MODEL="${BASE_MODEL:-mlx-community/SmolLM2-1.7B-Instruct}"
 N_VALUES="${N_VALUES:-$DEFAULT_N_VALUES}"
 METHODS="${METHODS:-$DEFAULT_METHODS}"
@@ -54,8 +55,11 @@ COMPARE_LIMIT="${COMPARE_LIMIT:-$DEFAULT_COMPARE_LIMIT}"
 PREPARE_DATA="${PREPARE_DATA:-1}"
 PREPARED_DATA_DIR="${PREPARED_DATA_DIR:-data/${DATASET}}"
 REUSE_EXISTING_ADAPTERS="${REUSE_EXISTING_ADAPTERS:-0}"
+REQUIRE_EXISTING_ADAPTERS="${REQUIRE_EXISTING_ADAPTERS:-0}"
 REUSE_EXISTING_COMPARISONS="${REUSE_EXISTING_COMPARISONS:-0}"
+RUN_COMPARISONS="${RUN_COMPARISONS:-1}"
 RUN_KERNEL="${RUN_KERNEL:-1}"
+SKIP_LORA_TEST="${SKIP_LORA_TEST:-0}"
 KERNEL_TRAIN_LIMITS="${KERNEL_TRAIN_LIMITS:-}"
 KERNEL_VALID_LIMIT="${KERNEL_VALID_LIMIT:-}"
 KERNEL_TEST_LIMIT="${KERNEL_TEST_LIMIT:-}"
@@ -81,6 +85,12 @@ if [[ "${#METHOD_ARRAY[@]}" -eq 0 ]]; then
   echo "METHODS must contain at least one method suffix." >&2
   exit 2
 fi
+read -r -a KERNEL_CONFIG_ARRAY <<< "$KERNEL_CONFIGS"
+if [[ "${#KERNEL_CONFIG_ARRAY[@]}" -eq 0 ]]; then
+  echo "KERNEL_CONFIGS must contain at least one kernel config." >&2
+  exit 2
+fi
+KERNEL_CONFIG_COUNT="${#KERNEL_CONFIG_ARRAY[@]}"
 if [[ -n "$KERNEL_TRAIN_LIMITS" ]]; then
   read -r -a KERNEL_TRAIN_LIMIT_ARRAY <<< "$KERNEL_TRAIN_LIMITS"
 else
@@ -142,19 +152,28 @@ elif [[ "$REUSE_EXISTING_COMPARISONS" == "1" ]]; then
   done
 fi
 SUBSET_TRAIN_COMMAND_COUNT=$((SUBSET_RUN_COUNT - REUSED_SUBSET_COUNT))
+if [[ "$REQUIRE_EXISTING_ADAPTERS" == "1" ]]; then
+  SUBSET_TRAIN_COMMAND_COUNT=0
+fi
 COMPARISON_COMMAND_COUNT=$((SUBSET_RUN_COUNT - REUSED_COMPARISON_COUNT))
+if [[ "$RUN_COMPARISONS" != "1" ]]; then
+  COMPARISON_COMMAND_COUNT=0
+fi
 KERNEL_COMMAND_COUNT=0
 if [[ "$RUN_KERNEL" == "1" ]]; then
   if [[ -n "${KERNEL_ADAPTER_RUNS:-}" ]]; then
     read -r -a PLANNED_KERNEL_ARRAY <<< "$KERNEL_ADAPTER_RUNS"
-    KERNEL_COMMAND_COUNT=$((${#PLANNED_KERNEL_ARRAY[@]} * ${#KERNEL_TRAIN_LIMIT_ARRAY[@]}))
+    KERNEL_COMMAND_COUNT=$((${#PLANNED_KERNEL_ARRAY[@]} * ${#KERNEL_TRAIN_LIMIT_ARRAY[@]} * KERNEL_CONFIG_COUNT))
   else
-    KERNEL_COMMAND_COUNT=$((PLANNED_ADAPTER_COUNT * ${#KERNEL_TRAIN_LIMIT_ARRAY[@]}))
+    KERNEL_COMMAND_COUNT=$((PLANNED_ADAPTER_COUNT * ${#KERNEL_TRAIN_LIMIT_ARRAY[@]} * KERNEL_CONFIG_COUNT))
   fi
 fi
-REPORT_COMMAND_COUNT=2
+REPORT_COMMAND_COUNT=1
+if [[ "$RUN_COMPARISONS" == "1" ]]; then
+  REPORT_COMMAND_COUNT=$((REPORT_COMMAND_COUNT + 1))
+fi
 if [[ "$RUN_KERNEL" == "1" ]]; then
-  REPORT_COMMAND_COUNT=4
+  REPORT_COMMAND_COUNT=$((REPORT_COMMAND_COUNT + 2))
 fi
 TOTAL_COMMANDS=$((DATA_PREP_COMMAND_COUNT + TRAIN_FULL_COMMAND_COUNT + SUBSET_TRAIN_COMMAND_COUNT + COMPARISON_COMMAND_COUNT + KERNEL_COMMAND_COUNT + REPORT_COMMAND_COUNT))
 COMMAND_INDEX=0
@@ -281,7 +300,9 @@ write_manifest() {
 - Prepare data: \`${PREPARE_DATA}\`
 - Prepared data dir: \`${PREPARED_DATA_DIR}\`
 - Training config: \`${TRAIN_CONFIG}\`
+- Skip LoRA post-train test: \`${SKIP_LORA_TEST}\`
 - Kernel config: \`${KERNEL_CONFIG}\`
+- Kernel configs: \`${KERNEL_CONFIGS}\`
 - Base model: \`${BASE_MODEL}\`
 - Subset sizes: \`${N_VALUES}\`
 - Methods: \`${METHODS}\`
@@ -291,10 +312,12 @@ write_manifest() {
 - Thresholded sign threshold: \`${THRESHOLDED_SIGN_THRESHOLD}\`
 - Compare split: \`${COMPARE_SPLIT}\`
 - Compare limit: \`${COMPARE_LIMIT}\`
+- Run comparisons: \`${RUN_COMPARISONS}\`
 - Run prefix: \`${RUN_PREFIX}\`
 - Full run: \`${FULL_RUN}\`
 - Train full adapter: \`${TRAIN_FULL}\`
 - Reuse existing subset adapters: \`${REUSE_EXISTING_ADAPTERS}\`
+- Require existing subset adapters: \`${REQUIRE_EXISTING_ADAPTERS}\`
 - Reuse existing comparisons: \`${REUSE_EXISTING_COMPARISONS}\`
 - Kernel adapter runs: \`all trained adapters unless KERNEL_ADAPTER_RUNS is set\`
 - Kernel train limits: \`${KERNEL_TRAIN_LIMITS:-config default}\`
@@ -302,10 +325,10 @@ write_manifest() {
 - Kernel test limit override: \`${KERNEL_TEST_LIMIT:-config default}\`
 - Reports: \`${REPORT_DIR}\`
 
-This orchestration trains one full adapter and one subset adapter for each
-method/subset-size pair, compares every subset adapter against the full adapter,
-runs kernel experiments for the configured adapter set, and generates Markdown
-reports with SVG visualizations.
+This orchestration trains or reuses one full adapter and one subset adapter for
+each method/subset-size pair, optionally compares every subset adapter against
+the full adapter, runs kernel experiments for the configured adapter set, and
+generates Markdown reports with SVG visualizations.
 EOF
 }
 
@@ -324,15 +347,29 @@ kernel_run_suffix() {
   echo "$suffix"
 }
 
+kernel_config_variant() {
+  local config_path="$1"
+  local base
+  base="$(basename "$config_path")"
+  base="${base%.*}"
+  echo "$base"
+}
+
 write_kernel_config() {
   local adapter_run="$1"
   local train_limit="${2:-}"
+  local kernel_base_config="${3:-$KERNEL_CONFIG}"
+  local variant="${4:-}"
   local suffix
   suffix="$(kernel_run_suffix "$train_limit")"
-  local config_path="${KERNEL_CONFIG_DIR}/${adapter_run}-${suffix}.yaml"
+  local config_component=""
+  if [[ -n "$variant" ]]; then
+    config_component="-${variant}"
+  fi
+  local config_path="${KERNEL_CONFIG_DIR}/${adapter_run}${config_component}-${suffix}.yaml"
   mkdir -p "$KERNEL_CONFIG_DIR"
   cat > "$config_path" <<EOF
-extends: "${ROOT_DIR}/${KERNEL_CONFIG}"
+extends: "${ROOT_DIR}/${kernel_base_config}"
 base_model: "${BASE_MODEL}"
 adapter_path: "${ROOT_DIR}/results/adapters/${adapter_run}"
 output_root: "${ROOT_DIR}/${KERNEL_OUTPUT_ROOT}"
@@ -357,9 +394,13 @@ log "Output directory: ${ORCH_DIR}"
 log "Report directory: ${REPORT_DIR}"
 log "Smoke run: ${SMOKE_RUN}; debug: ${DEBUG}; plan only: ${PLAN_ONLY}"
 log "Dataset: ${DATASET}; n values: ${N_VALUES}; methods: ${METHODS}"
+log "Kernel configs: ${KERNEL_CONFIGS}"
 log "Full run: ${FULL_RUN}; train full adapter: ${TRAIN_FULL}"
+log "Skip LoRA post-train test: ${SKIP_LORA_TEST}"
 log "Prepare data: ${PREPARE_DATA}; prepared data dir: ${PREPARED_DATA_DIR}"
+log "Run comparisons: ${RUN_COMPARISONS}"
 log "Reuse existing subset adapters: ${REUSE_EXISTING_ADAPTERS}; reusable subset adapters found: ${REUSED_SUBSET_COUNT}"
+log "Require existing subset adapters: ${REQUIRE_EXISTING_ADAPTERS}"
 log "Reuse existing comparisons: ${REUSE_EXISTING_COMPARISONS}; reusable comparisons found: ${REUSED_COMPARISON_COUNT}"
 log "Kernel train limits: ${KERNEL_TRAIN_LIMITS:-config default}; valid override: ${KERNEL_VALID_LIMIT:-config default}; test override: ${KERNEL_TEST_LIMIT:-config default}"
 log "Planned work: ${PLANNED_ADAPTER_COUNT} adapters, ${SUBSET_RUN_COUNT} comparisons, ${KERNEL_COMMAND_COUNT} kernel runs"
@@ -387,10 +428,16 @@ TRAINED_ADAPTER_RUNS=("$FULL_RUN")
 
 if [[ "$TRAIN_FULL" == "1" ]]; then
   section "Train full-data adapter"
-  run_cmd uv run mlx-lora-run \
+  FULL_CMD=(
+    uv run mlx-lora-run
     --config "$TRAIN_CONFIG" \
     --run-name "$FULL_RUN" \
     --base-model "$BASE_MODEL"
+  )
+  if [[ "$SKIP_LORA_TEST" == "1" ]]; then
+    FULL_CMD+=(--skip-test)
+  fi
+  run_cmd "${FULL_CMD[@]}"
 else
   section "Reuse full-data adapter"
   log "Skipping full adapter training; using ${FULL_RUN}"
@@ -425,27 +472,40 @@ for n in "${N_ARRAY[@]}"; do
     if [[ "$DEBUG" == "1" ]]; then
       CMD+=(--selector-debug)
     fi
+    if [[ "$SKIP_LORA_TEST" == "1" ]]; then
+      CMD+=(--skip-test)
+    fi
     append_selector_args "$suffix"
     if [[ "$REUSE_EXISTING_ADAPTERS" == "1" ]] && adapter_run_complete "$subset_run"; then
       log "Skipping subset adapter training; using existing completed run ${subset_run}"
+    elif [[ "$REQUIRE_EXISTING_ADAPTERS" == "1" ]]; then
+      log "Requiring existing completed subset adapter run ${subset_run}"
+      if [[ "$PLAN_ONLY" != "1" ]]; then
+        echo "Missing completed subset adapter run: ${subset_run}" >&2
+        exit 2
+      fi
     else
       run_cmd "${CMD[@]}"
     fi
     TRAINED_ADAPTER_RUNS+=("$subset_run")
 
-    comparison_dir="${ORCH_DIR}/comparisons/${subset_run}__vs__${FULL_RUN}"
-    if [[ "$REUSE_EXISTING_COMPARISONS" == "1" ]] && comparison_complete "$subset_run" "$FULL_RUN"; then
-      log "Skipping adapter comparison; using existing ${comparison_dir}"
+    if [[ "$RUN_COMPARISONS" != "1" ]]; then
+      log "Skipping adapter comparison; RUN_COMPARISONS=${RUN_COMPARISONS}"
     else
-      run_cmd uv run mlx-lora-compare-adapters \
-        --config "$TRAIN_CONFIG" \
-        --base-model "$BASE_MODEL" \
-        --full-adapter "results/adapters/${FULL_RUN}" \
-        --subset-adapter "results/adapters/${subset_run}" \
-        --split "$COMPARE_SPLIT" \
-        --limit "$COMPARE_LIMIT" \
-        --method "$method" \
-        --output-dir "$comparison_dir"
+      comparison_dir="${ORCH_DIR}/comparisons/${subset_run}__vs__${FULL_RUN}"
+      if [[ "$REUSE_EXISTING_COMPARISONS" == "1" ]] && comparison_complete "$subset_run" "$FULL_RUN"; then
+        log "Skipping adapter comparison; using existing ${comparison_dir}"
+      else
+        run_cmd uv run mlx-lora-compare-adapters \
+          --config "$TRAIN_CONFIG" \
+          --base-model "$BASE_MODEL" \
+          --full-adapter "results/adapters/${FULL_RUN}" \
+          --subset-adapter "results/adapters/${subset_run}" \
+          --split "$COMPARE_SPLIT" \
+          --limit "$COMPARE_LIMIT" \
+          --method "$method" \
+          --output-dir "$comparison_dir"
+      fi
     fi
   done
 done
@@ -459,16 +519,26 @@ if [[ "$RUN_KERNEL" == "1" ]]; then
   fi
   KERNEL_INDEX=0
   for adapter_run in "${KERNEL_RUN_ARRAY[@]}"; do
-    for train_limit in "${KERNEL_TRAIN_LIMIT_ARRAY[@]}"; do
-      KERNEL_INDEX=$((KERNEL_INDEX + 1))
-      kernel_suffix="$(kernel_run_suffix "$train_limit")"
-      log "Kernel ${KERNEL_INDEX}/${KERNEL_COMMAND_COUNT} for adapter ${adapter_run}, train_limit=${train_limit:-config default}"
-      kernel_config="$(write_kernel_config "$adapter_run" "$train_limit")"
-      kernel_run_name="${adapter_run}-${kernel_suffix}"
-      run_cmd uv run mlx-lora-run-kernel \
-        --config "$kernel_config" \
-        --run-name "$kernel_run_name" \
-        --base-model "$BASE_MODEL"
+    for kernel_base_config in "${KERNEL_CONFIG_ARRAY[@]}"; do
+      kernel_variant=""
+      if [[ "$KERNEL_CONFIG_COUNT" -gt 1 ]]; then
+        kernel_variant="$(kernel_config_variant "$kernel_base_config")"
+      fi
+      for train_limit in "${KERNEL_TRAIN_LIMIT_ARRAY[@]}"; do
+        KERNEL_INDEX=$((KERNEL_INDEX + 1))
+        kernel_suffix="$(kernel_run_suffix "$train_limit")"
+        if [[ -n "$kernel_variant" ]]; then
+          kernel_run_name="${adapter_run}-${kernel_variant}-${kernel_suffix}"
+        else
+          kernel_run_name="${adapter_run}-${kernel_suffix}"
+        fi
+        log "Kernel ${KERNEL_INDEX}/${KERNEL_COMMAND_COUNT} for adapter ${adapter_run}, config=${kernel_base_config}, train_limit=${train_limit:-config default}"
+        kernel_config="$(write_kernel_config "$adapter_run" "$train_limit" "$kernel_base_config" "$kernel_variant")"
+        run_cmd uv run mlx-lora-run-kernel \
+          --config "$kernel_config" \
+          --run-name "$kernel_run_name" \
+          --base-model "$BASE_MODEL"
+      done
     done
   done
 else
@@ -480,10 +550,14 @@ section "Generate reports and visuals"
 run_cmd uv run mlx-lora-make-report \
   --output "${REPORT_DIR}/lora_runs.md"
 
-run_cmd uv run mlx-lora-make-adapter-comparison \
-  --output-root "$ORCH_DIR" \
-  --output "${REPORT_DIR}/adapter_comparisons.md" \
-  --assets-dir "${REPORT_DIR}/assets/adapter_comparisons"
+if [[ "$RUN_COMPARISONS" == "1" ]]; then
+  run_cmd uv run mlx-lora-make-adapter-comparison \
+    --output-root "$ORCH_DIR" \
+    --output "${REPORT_DIR}/adapter_comparisons.md" \
+    --assets-dir "${REPORT_DIR}/assets/adapter_comparisons"
+else
+  log "Skipping adapter comparison report; RUN_COMPARISONS=${RUN_COMPARISONS}"
+fi
 
 if [[ "$RUN_KERNEL" == "1" ]]; then
   run_cmd uv run mlx-lora-make-kernel-report \

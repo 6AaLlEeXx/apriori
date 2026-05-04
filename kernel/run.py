@@ -9,6 +9,11 @@ import json
 import numpy as np
 from numpy.typing import NDArray
 
+from transformations import (
+    apply_transformations,
+    normalize_transformation_names,
+    normalize_transformation_params,
+)
 from kernel.config import (
     KernelRunConfig,
     KernelRunPaths,
@@ -37,6 +42,13 @@ from paths import resolve_project_path
 Array = NDArray[Any]
 FloatArray = NDArray[np.float64]
 KERNEL_CACHE_VERSION = 1
+FEATURE_TRANSFORM_BACKEND_ARG_KEYS = {
+    "feature_transform",
+    "feature_transformations",
+    "feature_transform_params",
+    "feature_transformation_params",
+    "threshold",
+}
 
 
 class Scorer(Protocol):
@@ -237,13 +249,18 @@ def _feature_cache_path(
     config: KernelRunConfig,
     records: list[PairRecord],
 ) -> Path:
+    extraction_backend_args = {
+        key: value
+        for key, value in dict(config.backend_args).items()
+        if key not in FEATURE_TRANSFORM_BACKEND_ARG_KEYS
+    }
     payload = {
         "version": KERNEL_CACHE_VERSION,
         "kind": "features",
         "backend": config.backend,
         "base_model": config.base_model,
         "seed": config.seed,
-        "backend_args": dict(config.backend_args),
+        "backend_args": extraction_backend_args,
         "adapter_config": _adapter_config_payload(config.adapter_path),
         "records": _records_payload(records),
     }
@@ -254,6 +271,55 @@ def _feature_cache_path(
         / backend
         / f"{_json_hash(payload)}.npy"
     )
+
+
+def _feature_transform_names(config: KernelRunConfig) -> list[str]:
+    raw = config.backend_args.get(
+        "feature_transformations",
+        config.backend_args.get("feature_transform"),
+    )
+    return normalize_transformation_names(raw)
+
+
+def _feature_transform_params(config: KernelRunConfig) -> dict[str, dict[str, Any]]:
+    raw = config.backend_args.get(
+        "feature_transformation_params",
+        config.backend_args.get("feature_transform_params"),
+    )
+    params = normalize_transformation_params(raw if isinstance(raw, dict) else None)
+    if "threshold" in config.backend_args:
+        thresholded_params = dict(params.get("thresholded_sign", {}))
+        thresholded_params.setdefault("threshold", config.backend_args["threshold"])
+        params["thresholded_sign"] = thresholded_params
+    return params
+
+
+def _feature_transform_label(
+    names: list[str],
+    params: dict[str, dict[str, Any]],
+) -> str:
+    active = [name for name in names if name != "identity"]
+    if not active:
+        return "raw"
+    labels: list[str] = []
+    for name in active:
+        label = name
+        if name == "thresholded_sign":
+            threshold = params.get("thresholded_sign", {}).get("threshold")
+            if threshold is not None:
+                label = f"{name}(threshold={threshold})"
+        labels.append(label)
+    return "+".join(labels)
+
+
+def _feature_transform_payload(config: KernelRunConfig) -> dict[str, Any]:
+    names = _feature_transform_names(config)
+    params = _feature_transform_params(config)
+    return {
+        "names": names,
+        "params": params,
+        "label": _feature_transform_label(names, params),
+    }
 
 
 def _read_jsonl(path: str | Path) -> list[dict[str, Any]]:
@@ -392,8 +458,18 @@ def _extract_features_to_npy(
     return path, feature_dim
 
 
-def _load_features(path: str | Path) -> Array:
-    return np.load(Path(path), mmap_mode="r")
+def _load_features(path: str | Path, config: KernelRunConfig | None = None) -> Array:
+    features = np.load(Path(path), mmap_mode="r")
+    if config is None:
+        return features
+    names = _feature_transform_names(config)
+    if all(name == "identity" for name in names):
+        return features
+    return apply_transformations(
+        np.asarray(features, dtype=np.float32),
+        names,
+        params=_feature_transform_params(config),
+    )
 
 
 def _kernel_from_features(left: Array, right: Array) -> FloatArray:
@@ -543,6 +619,7 @@ def _build_report_markdown(
         f"- Target: `{config.target}`",
         f"- Kernel method: `{config.kernel.method}`",
         f"- Feature dimension: `{feature_dim}`",
+        f"- Feature transform: `{eval_payload.get('feature_transform', {}).get('label', 'raw')}`",
         "",
         "## Split Metrics",
         "",
@@ -650,7 +727,7 @@ def run_kernel_experiment(
     del feature_backend
     gc.collect()
 
-    train_features = _load_features(feature_paths["train"])
+    train_features = _load_features(feature_paths["train"], runtime_config)
     targets = np.asarray(
         [row["score_delta"] for row in score_rows["train"]],
         dtype=np.float64,
@@ -665,11 +742,12 @@ def run_kernel_experiment(
         "backend": runtime_config.backend,
         "target": runtime_config.target,
         "feature_dim": feature_dim,
+        "feature_transform": _feature_transform_payload(runtime_config),
         "timestamp": now_iso(),
     }
     prediction_rows_by_split: dict[str, list[dict[str, Any]]] = {}
     for split in ("train", "valid", "test"):
-        split_features = _load_features(feature_paths[split])
+        split_features = _load_features(feature_paths[split], runtime_config)
         pred_delta = _predict_split(
             config=runtime_config,
             fitted_model=fitted_model,
@@ -722,6 +800,8 @@ def run_kernel_experiment(
         "data_dir": runtime_config.data_dir,
         "backend": runtime_config.backend,
         "target": runtime_config.target,
+        "feature_transform": eval_payload["feature_transform"],
+        "feature_transform_label": eval_payload["feature_transform"]["label"],
         "adapter_path": runtime_config.adapter_path,
         "feature_dim": feature_dim,
         "split_sizes": {

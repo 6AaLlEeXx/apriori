@@ -1,0 +1,11 @@
+extends: dolly_lora_ntk.yaml
+backend_args:
+  leaf_filter: lora_b_only
+  feature_transform: thresholded_sign
+  threshold: 0.1
+run_tags:
+  - mlx-lora
+  - kernel
+  - dolly
+  - thresholded-sign
+notes: Dolly LoRA-NTK score-delta KRR with thresholded-sign gradient features.

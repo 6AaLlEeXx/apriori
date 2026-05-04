@@ -14,6 +14,7 @@ def _write_run(
     train_n: int,
     test_delta_pearson: float,
     base_model: str = "mlx-community/SmolLM2-1.7B-Instruct",
+    feature_label: str = "raw",
 ) -> None:
     run_dir = root / "runs" / run_name
     run_dir.mkdir(parents=True)
@@ -25,6 +26,14 @@ def _write_run(
                 "base_model": base_model,
                 "dataset_name": dataset_name,
                 "backend": backend,
+                "feature_transform_label": feature_label,
+                "feature_transform": {
+                    "names": (
+                        ["identity"] if feature_label == "raw" else [feature_label]
+                    ),
+                    "params": {},
+                    "label": feature_label,
+                },
                 "feature_dim": 2048,
                 "split_sizes": {"train": train_n, "valid": 8, "test": 8},
                 "test_delta_pearson": test_delta_pearson,
@@ -45,7 +54,14 @@ def _write_run(
                     "adapter_score": {
                         "pearson": 0.95,
                     },
-                }
+                },
+                "feature_transform": {
+                    "names": (
+                        ["identity"] if feature_label == "raw" else [feature_label]
+                    ),
+                    "params": {},
+                    "label": feature_label,
+                },
             }
         )
     )
@@ -250,6 +266,44 @@ def test_make_kernel_report_writes_prediction_scatter_plot(tmp_path: Path) -> No
         / "kernel"
         / "kernel_average_test_delta_rmse_vs_baseline.svg"
     ).exists()
+    assert (
+        tmp_path
+        / "assets"
+        / "kernel"
+        / "kernel_train_size_test_delta_rmse_gain_by_feature.svg"
+    ).exists()
+
+
+def test_kernel_comparison_report_keeps_feature_transforms_separate(
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "kernel"
+    _write_run(
+        output_root,
+        run_name="raw-run",
+        dataset_name="dolly",
+        backend="lora_ntk",
+        train_n=16,
+        test_delta_pearson=0.8,
+        feature_label="raw",
+    )
+    _write_run(
+        output_root,
+        run_name="thresholded-run",
+        dataset_name="dolly",
+        backend="lora_ntk",
+        train_n=16,
+        test_delta_pearson=0.7,
+        feature_label="thresholded_sign(threshold=0.1)",
+    )
+
+    output_path = tmp_path / "comparison.md"
+    make_kernel_comparison_report(output_root=output_root, output_path=output_path)
+
+    report = output_path.read_text()
+    assert "`raw-run`" in report
+    assert "`thresholded-run`" in report
+    assert "thresholded_sign(threshold=0.1)" in report
 
 
 def test_make_kernel_report_writes_train_size_sweep_plots(tmp_path: Path) -> None:

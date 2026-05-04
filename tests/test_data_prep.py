@@ -397,6 +397,61 @@ mapping:
     assert sum(prompt.startswith("extra-") for prompt in prompts) == 1
 
 
+def test_prepare_dataset_from_config_excludes_prompt_hash_sources(tmp_path) -> None:
+    train_path = tmp_path / "train.jsonl"
+    valid_path = tmp_path / "valid.jsonl"
+    test_path = tmp_path / "test.jsonl"
+    exclusion_path = tmp_path / "exclude.jsonl"
+    _write_jsonl(
+        train_path,
+        [
+            {"prompt": "keep train", "completion": "a"},
+            {"prompt": "drop me", "completion": "b"},
+        ],
+    )
+    _write_jsonl(valid_path, [{"prompt": "drop me", "completion": "c"}])
+    _write_jsonl(test_path, [{"prompt": "keep test", "completion": "d"}])
+    _write_jsonl(exclusion_path, [{"prompt": "drop me", "completion": "old"}])
+    config_path = tmp_path / "data.yaml"
+    output_dir = tmp_path / "prepared"
+    config_path.write_text(
+        f"""
+dataset_name: excluded
+output_dir: {output_dir}
+source:
+  type: jsonl
+  files:
+    train: {train_path}
+    valid: {valid_path}
+    test: {test_path}
+split:
+  strategy: existing
+mapping:
+  type: template
+  prompt_template: "{{prompt}}"
+  completion_template: "{{completion}}"
+filters:
+  exclude_prompt_hashes:
+    sources:
+      - {exclusion_path}
+"""
+    )
+
+    counts = prepare_dataset_from_config(config_path)
+
+    assert counts == {"train": 1, "valid": 0, "test": 1}
+    train_rows = [
+        json.loads(line)
+        for line in (output_dir / "train.jsonl").read_text().splitlines()
+    ]
+    assert [row["prompt"] for row in train_rows] == ["keep train"]
+    metadata = json.loads((output_dir / "metadata.json").read_text())
+    assert metadata["extra"]["filter_stats"]["train"][
+        "skipped_excluded_prompt_hash"
+    ] == 1
+    assert metadata["extra"]["filters"]["excluded_prompt_hashes"] == 1
+
+
 def test_tokenizer_override_requires_enabled_token_filter(tmp_path) -> None:
     source_path = tmp_path / "records.jsonl"
     _write_jsonl(source_path, [{"prompt": "p", "completion": "c"}])

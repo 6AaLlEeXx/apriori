@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import random
 from dataclasses import dataclass, field
@@ -69,6 +70,7 @@ FILTER_KEYS = {
     "max_completion_chars",
     "max_total_chars",
     "token_supervision",
+    "exclude_prompt_hashes",
 }
 TOKEN_FILTER_KEYS = {
     "enabled",
@@ -76,6 +78,7 @@ TOKEN_FILTER_KEYS = {
     "max_seq_length",
     "min_supervised_tokens",
 }
+EXCLUDE_PROMPT_HASH_KEYS = {"sources"}
 SOURCE_TYPES = {"hf", "jsonl", "json", "csv"}
 SPLIT_STRATEGIES = {
     "ratios",
@@ -108,6 +111,7 @@ class WriteFilters:
     max_prompt_chars: int | None = None
     max_completion_chars: int | None = None
     max_total_chars: int | None = None
+    excluded_prompt_hashes: frozenset[str] = field(default_factory=frozenset)
     token_supervision: TokenSupervisionFilter = field(
         default_factory=TokenSupervisionFilter
     )
@@ -117,6 +121,7 @@ class WriteFilters:
             "max_prompt_chars": self.max_prompt_chars,
             "max_completion_chars": self.max_completion_chars,
             "max_total_chars": self.max_total_chars,
+            "excluded_prompt_hashes": len(self.excluded_prompt_hashes),
             "token_supervision": self.token_supervision.to_metadata(),
         }
 
@@ -215,6 +220,37 @@ def ensure_dir(path: str | Path) -> Path:
 
 def normalize_text(value: Any | None) -> str:
     return "" if value is None else str(value).strip()
+
+
+def prompt_hash(prompt: str) -> str:
+    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+
+
+def load_prompt_hashes_from_jsonl(paths: list[str | Path]) -> frozenset[str]:
+    hashes: set[str] = set()
+    for raw_path in paths:
+        path = resolve_project_path(raw_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Prompt exclusion source not found: {path}")
+        with path.open(encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    payload = json.loads(text)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(
+                        f"Invalid JSON in prompt exclusion source {path}:"
+                        f"{line_number}"
+                    ) from exc
+                if not isinstance(payload, dict):
+                    raise ValueError(
+                        f"Prompt exclusion source {path}:{line_number} "
+                        "must contain JSON objects."
+                    )
+                hashes.add(prompt_hash(normalize_text(payload.get("prompt"))))
+    return frozenset(hashes)
 
 
 def normalize_limit(value: int | None) -> int | None:
@@ -531,6 +567,28 @@ def _validate_filter_config(filters: dict[str, Any]) -> None:
     for key in ("max_prompt_chars", "max_completion_chars", "max_total_chars"):
         if key in filters:
             normalize_limit(filters[key])
+    exclude_prompt_hashes = filters.get("exclude_prompt_hashes")
+    if exclude_prompt_hashes is not None:
+        exclude_prompt_hashes = _expect_mapping(
+            exclude_prompt_hashes,
+            "filters.exclude_prompt_hashes",
+        )
+        _expect_unknown_keys(
+            exclude_prompt_hashes,
+            EXCLUDE_PROMPT_HASH_KEYS,
+            "filters.exclude_prompt_hashes",
+        )
+        sources = exclude_prompt_hashes.get("sources")
+        if not isinstance(sources, list) or not sources:
+            raise ValueError(
+                "`filters.exclude_prompt_hashes.sources` must be a non-empty list."
+            )
+        for index, source in enumerate(sources):
+            if not isinstance(source, str) or not source.strip():
+                raise ValueError(
+                    "`filters.exclude_prompt_hashes.sources"
+                    f"[{index}]` must be a non-empty path string."
+                )
     token_filter = filters.get("token_supervision")
     if token_filter is None:
         return
@@ -1032,6 +1090,12 @@ def _configured_seed(config: dict[str, Any]) -> int:
 def _write_filters(config: dict[str, Any]) -> WriteFilters:
     filters = dict(config.get("filters") or {})
     token_filter = dict(filters.get("token_supervision") or {})
+    exclude_prompt_hashes = dict(filters.get("exclude_prompt_hashes") or {})
+    excluded_prompt_hashes = frozenset()
+    if exclude_prompt_hashes:
+        excluded_prompt_hashes = load_prompt_hashes_from_jsonl(
+            [str(source) for source in exclude_prompt_hashes.get("sources") or []]
+        )
     tokenizer = None
     token_supervision = TokenSupervisionFilter()
     if token_filter.get("enabled", False):
@@ -1051,6 +1115,7 @@ def _write_filters(config: dict[str, Any]) -> WriteFilters:
         max_prompt_chars=normalize_limit(filters.get("max_prompt_chars")),
         max_completion_chars=normalize_limit(filters.get("max_completion_chars")),
         max_total_chars=normalize_limit(filters.get("max_total_chars")),
+        excluded_prompt_hashes=excluded_prompt_hashes,
         token_supervision=token_supervision,
     )
 
@@ -1091,6 +1156,16 @@ def write_jsonl(
             completion_len = len(completion)
             total_len = prompt_len + completion_len
             token_stats = None
+
+            if (
+                filters.excluded_prompt_hashes
+                and prompt_hash(prompt) in filters.excluded_prompt_hashes
+            ):
+                stats["skipped"] = stats.get("skipped", 0) + 1
+                stats["skipped_excluded_prompt_hash"] = (
+                    stats.get("skipped_excluded_prompt_hash", 0) + 1
+                )
+                continue
 
             stats["max_prompt_chars_seen"] = max(
                 stats.get("max_prompt_chars_seen", 0), prompt_len

@@ -1,6 +1,7 @@
 from reporting.plots import (
     PlotArtifact,
     generate_adapter_comparison_plots,
+    generate_kernel_paper_plots,
     generate_kernel_prediction_plots,
     markdown_plot_section,
 )
@@ -8,6 +9,7 @@ from reporting.plots import (
 __all__ = [
     "PlotArtifact",
     "generate_adapter_comparison_plots",
+    "generate_kernel_paper_plots",
     "generate_kernel_prediction_plots",
     "markdown_plot_section",
 ]

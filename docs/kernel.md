@@ -100,7 +100,7 @@ uv run mlx-lora-make-kernel-comparison \
   --base-models mlx-community/SmolLM2-1.7B-Instruct
 ```
 
-The comparison report groups runs by base model, dataset, and backend. For each group it chooses the run with the largest train split, then breaks ties by higher test delta Pearson and newer run name.
+The comparison report groups runs by base model, dataset, backend, and feature transform. For each group it chooses the run with the largest train split, then breaks ties by higher test delta Pearson and newer run name.
 
 ## V1 Constraints
 
@@ -109,6 +109,9 @@ The comparison report groups runs by base model, dataset, and backend. For each 
 - The tokenizer must expose `apply_chat_template`; plain tokenizer fallback is not implemented yet.
 - `adapter_path` must resolve to a LoRA/DoRA adapter directory with `adapter_config.json`.
 - `backend=lora_ntk` computes score Jacobians with respect to inserted LoRA parameters and should be kept to small subsets.
+- Kernel configs can set `backend_args.feature_transform: thresholded_sign`
+  and `backend_args.threshold: <float>` to run KRR on thresholded-sign
+  LoRA-NTK gradients while reusing the same raw feature cache.
 
 ## Outputs
 
