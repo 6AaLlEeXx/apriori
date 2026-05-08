@@ -69,7 +69,7 @@ $$
 \Delta_a(z_i).
 $$
 
-Historically, the code calls this backend `lora_ntk`, because the implemented parameter subset is the LoRA adapter block. In the paper text, a clearer name is **score-induced tangent kernel**, or **parameter-restricted score tangent kernel** when emphasizing the selected parameter block.
+Historically, the code calls this backend `lora_ntk`, because the implemented parameter subset is the LoRA adapter block. In the paper text, a clearer name should be **score-induced tangent kernel**, or **parameter-restricted score tangent kernel** when emphasizing the selected parameter block.
 
 ## What This Work Tests
 
