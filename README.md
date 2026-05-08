@@ -2,72 +2,72 @@
 
 This repository studies whether local tangent information from a large language model can predict how fine-tuning on a small subset of examples changes held-out example scores.
 
-The current implementation uses MLX-LM adapters, but the core object is more general than LoRA. Given a model with parameters \(\theta \in \mathbb{R}^p\), choose a subset of parameters \(I \subseteq \{1,\ldots,p\}\). The selected parameters may be LoRA weights, one layer, attention weights, MLP weights, or any other parameter block.
+The current implementation uses MLX-LM adapters, but the core object is more general than LoRA. Given a model with parameters $\theta \in \mathbb{R}^p$, choose a subset of parameters $I \subseteq \{1,\ldots,p\}$. The selected parameters may be LoRA weights, one layer, attention weights, MLP weights, or any other parameter block.
 
-For an input-output example \(z=(x,y)\), let the model output be
+For an input-output example $z=(x,y)$, let the model output be
 
-\[
+$$
 f_\theta(x) \in \mathbb{R}^d
-\]
+$$
 
 and let
 
-\[
+$$
 s_z : \mathbb{R}^d \rightarrow \mathbb{R}
-\]
+$$
 
 be a scalar score functional. In this codebase, the score is the supervised completion log score, implemented as the negative token-level cross entropy on the completion tokens.
 
-The score-induced tangent feature for example \(z\), restricted to parameter subset \(I\), is
+The score-induced tangent feature for example $z$, restricted to parameter subset $I$, is
 
-\[
+$$
 \psi_I(z) =
 \nabla_{\theta_I} s_z(f_\theta(x)) \big|_{\theta=\theta_0}.
-\]
+$$
 
 The associated score-induced tangent kernel is
 
-\[
+$$
 K_I(z,z') =
 \langle \psi_I(z), \psi_I(z') \rangle.
-\]
+$$
 
 By the chain rule,
 
-\[
+$$
 \psi_I(z) =
 J_I f_{\theta_0}(x)^\top
 \nabla_f s_z(f_{\theta_0}(x)),
-\]
+$$
 
-so this is not simply the raw output NTK. It is the output tangent kernel contracted through the gradient of a task-specific scalar score. When \(s_z\) is nonlinear, as it is for cross entropy, the feature depends on the model prediction and the target example.
+so this is not simply the raw output NTK. It is the output tangent kernel contracted through the gradient of a task-specific scalar score. When $s_z$ is nonlinear, as it is for cross entropy, the feature depends on the model prediction and the target example.
 
-For a trained adapter \(a\), the target predicted by kernel ridge regression is the held-out score delta
+For a trained adapter $a$, the target predicted by kernel ridge regression is the held-out score delta
 
-\[
+$$
 \Delta_a(z) =
 s_z(f_{\theta_0,a}(x)) - s_z(f_{\theta_0}(x)).
-\]
+$$
 
-Given a kernel fit set \(S_k\), KRR learns \(\widehat{\Delta}_a\) from \(\{(z_i,\Delta_a(z_i)): z_i \in S_k\}\) and is evaluated by test RMSE:
+Given a kernel fit set $S_k$, KRR learns $\widehat{\Delta}_a$ from $\{(z_i,\Delta_a(z_i)): z_i \in S_k\}$ and is evaluated by test RMSE:
 
-\[
+$$
 \operatorname{RMSE} =
 \sqrt{
 \frac{1}{|\mathcal{T}|}
 \sum_{z \in \mathcal{T}}
 \left(\widehat{\Delta}_a(z)-\Delta_a(z)\right)^2
 }.
-\]
+$$
 
 The baseline predicts the train-set mean score delta for every held-out example:
 
-\[
+$$
 \bar{\Delta}_a =
 \frac{1}{|S_k|}
 \sum_{z_i \in S_k}
 \Delta_a(z_i).
-\]
+$$
 
 Historically, the code calls this backend `lora_ntk`, because the implemented parameter subset is the LoRA adapter block. In the paper text, a clearer name is **score-induced tangent kernel**, or **parameter-restricted score tangent kernel** when emphasizing the selected parameter block.
 
@@ -124,7 +124,7 @@ Important modules:
 This is a UV project. Reporting and most tests are ordinary Python. Training, adapter scoring, and score-gradient extraction use MLX-LM, so real experiments are intended for macOS on Apple Silicon.
 
 ```bash
-cd /Users/nahummaurice/Projects/university/diplom/lora
+cd lora
 uv sync --group dev
 ```
 
@@ -203,7 +203,7 @@ PLAN_ONLY=1 ./orchestrate.sh
 
 ## Paper-Style Run Template
 
-A typical paper-style run now focuses on random subset adapters and tests KRR at fixed kernel fit sizes. This example trains or reuses adapters for \(n \in \{16,256,512\}\), then evaluates KRR with raw and thresholded-sign features using kernel fit sizes \(k \in \{16,256,512\}\).
+A typical paper-style run now focuses on random subset adapters and tests KRR at fixed kernel fit sizes. This example trains or reuses adapters for $n \in \{16,256,512\}$, then evaluates KRR with raw and thresholded-sign features using kernel fit sizes $k \in \{16,256,512\}$.
 
 ```bash
 RUN_STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -312,20 +312,20 @@ and the thresholded-sign variant is:
 configs/kernel/dolly_lora_ntk_thresholded_sign.yaml
 ```
 
-The current feature backend extracts gradients with respect to LoRA leaves. By default, `backend_args.leaf_filter: lora_b_only` keeps only LoRA \(B\) matrices. Use `leaf_filter: all` in a kernel config to include all trainable LoRA leaves.
+The current feature backend extracts gradients with respect to LoRA leaves. By default, `backend_args.leaf_filter: lora_b_only` keeps only LoRA $B$ matrices. Use `leaf_filter: all` in a kernel config to include all trainable LoRA leaves.
 
 Feature transforms are applied after raw feature extraction:
 
-\[
+$$
 \operatorname{sign}(\psi)_j = \operatorname{sign}(\psi_j)
-\]
+$$
 
 and
 
-\[
+$$
 \operatorname{thresholded\_sign}_\tau(\psi)_j =
 \operatorname{sign}(\psi_j)\mathbf{1}\{|\psi_j| \ge \tau\}.
-\]
+$$
 
 The raw feature cache deliberately ignores transform-only backend arguments. That means thresholded-sign kernel runs reuse the expensive raw feature matrix and apply the threshold transformation on load.
 
