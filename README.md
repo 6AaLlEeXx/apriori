@@ -52,7 +52,7 @@ $$
 Given a kernel fit set $S_k$, KRR learns $\widehat{\Delta}_a$ from $\{(z_i,\Delta_a(z_i)): z_i \in S_k\}$ and is evaluated by test RMSE:
 
 $$
-\operatorname{RMSE} =
+\mathrm{RMSE} =
 \sqrt{
 \frac{1}{|\mathcal{T}|}
 \sum_{z \in \mathcal{T}}
@@ -317,14 +317,14 @@ The current feature backend extracts gradients with respect to LoRA leaves. By d
 Feature transforms are applied after raw feature extraction:
 
 $$
-\operatorname{sign}(\psi)_j = \operatorname{sign}(\psi_j)
+\mathrm{sign}(\psi)_j = \mathrm{sign}(\psi_j)
 $$
 
 and
 
 $$
-\operatorname{thresholded\_sign}_\tau(\psi)_j =
-\operatorname{sign}(\psi_j)\mathbf{1}\{|\psi_j| \ge \tau\}.
+\mathrm{thresholded\_sign}_\tau(\psi)_j =
+\mathrm{sign}(\psi_j)\mathbf{1}\{|\psi_j| \ge \tau\}.
 $$
 
 The raw feature cache deliberately ignores transform-only backend arguments. That means thresholded-sign kernel runs reuse the expensive raw feature matrix and apply the threshold transformation on load.
