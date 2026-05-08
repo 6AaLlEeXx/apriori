@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 from reporting.plots import (
     generate_adapter_comparison_plots,
     generate_kernel_prediction_plots,
+    generate_kernel_paper_plots,
 )
 
 
@@ -87,3 +88,58 @@ def test_adapter_grouped_bar_expands_for_long_method_legend(tmp_path: Path) -> N
     grouped_path = tmp_path / "plots" / "method_delta_pearson.svg"
     assert _svg_width(grouped_path) > 860
     assert method in grouped_path.read_text()
+
+
+def test_individual_kernel_paper_plots_can_write_pdf_siblings(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "kernel" / "toy-random-512-kernel-n16"
+    predictions_path = run_dir / "predictions" / "test.jsonl"
+    predictions_path.parent.mkdir(parents=True)
+    predictions_path.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "score_delta": value,
+                    "predicted_score_delta": value + 0.01,
+                }
+            )
+            for value in (0.1, 0.2, 0.3)
+        )
+        + "\n"
+    )
+
+    generate_kernel_paper_plots(
+        [
+            (
+                "Toy",
+                [
+                    {
+                        "status": "completed",
+                        "run_name": "toy-random-512-kernel-n16",
+                        "run_dir": str(run_dir),
+                        "adapter_path": "results/adapters/toy-random-512",
+                        "split_sizes": {"train": 16},
+                        "feature_transform_label": "raw",
+                        "test_delta_rmse_gain": 0.02,
+                    }
+                ],
+            )
+        ],
+        tmp_path / "paper",
+        train_sizes=[16],
+        features=["raw"],
+        adapter_contains="random-512",
+        individual=True,
+        pdf=True,
+    )
+
+    svg_path = tmp_path / "paper" / "toy_predicted_vs_true_k16.svg"
+    pdf_path = tmp_path / "paper" / "toy_predicted_vs_true_k16.pdf"
+    gain_pdf_path = tmp_path / "paper" / "toy_rmse_gain.pdf"
+    rmse_pdf_path = tmp_path / "paper" / "toy_rmse.pdf"
+
+    assert svg_path.exists()
+    assert pdf_path.read_bytes().startswith(b"%PDF-1.4")
+    assert gain_pdf_path.read_bytes().startswith(b"%PDF-1.4")
+    assert rmse_pdf_path.read_bytes().startswith(b"%PDF-1.4")

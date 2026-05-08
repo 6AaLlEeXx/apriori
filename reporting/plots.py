@@ -8,6 +8,7 @@ import json
 import math
 import os
 import re
+import xml.etree.ElementTree as ET
 
 
 _COLORS = [
@@ -83,6 +84,472 @@ def _mean(values: list[float]) -> float | None:
 def _write(path: Path, svg: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(svg)
+    return path
+
+
+def _pdf_number(value: float) -> str:
+    text = f"{value:.4f}".rstrip("0").rstrip(".")
+    return text if text else "0"
+
+
+def _svg_float(value: Any, default: float = 0.0) -> float:
+    if value is None:
+        return default
+    text = str(value).strip()
+    if text.endswith("%"):
+        return default
+    try:
+        return float(text)
+    except ValueError:
+        return default
+
+
+def _svg_color(value: Any) -> tuple[float, float, float] | None:
+    text = str(value or "").strip()
+    if not text or text == "none":
+        return None
+    if text.startswith("#") and len(text) == 7:
+        return (
+            int(text[1:3], 16) / 255,
+            int(text[3:5], 16) / 255,
+            int(text[5:7], 16) / 255,
+        )
+    if text == "white":
+        return (1.0, 1.0, 1.0)
+    if text == "black":
+        return (0.0, 0.0, 0.0)
+    return None
+
+
+def _pdf_color_command(value: Any, *, stroke: bool) -> str:
+    color = _svg_color(value)
+    if color is None:
+        return ""
+    operator = "RG" if stroke else "rg"
+    return (
+        f"{_pdf_number(color[0])} {_pdf_number(color[1])} "
+        f"{_pdf_number(color[2])} {operator}"
+    )
+
+
+def _pdf_escape_text(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+_HELVETICA_WIDTHS = {
+    " ": 278,
+    "!": 278,
+    '"': 355,
+    "#": 556,
+    "$": 556,
+    "%": 889,
+    "&": 667,
+    "'": 191,
+    "(": 333,
+    ")": 333,
+    "*": 389,
+    "+": 584,
+    ",": 278,
+    "-": 333,
+    ".": 278,
+    "/": 278,
+    ":": 278,
+    ";": 278,
+    "<": 584,
+    "=": 584,
+    ">": 584,
+    "?": 556,
+    "@": 1015,
+    "[": 278,
+    "\\": 278,
+    "]": 278,
+    "^": 469,
+    "_": 556,
+    "`": 333,
+    "{": 334,
+    "|": 260,
+    "}": 334,
+    "~": 584,
+}
+_HELVETICA_WIDTHS.update({str(number): 556 for number in range(10)})
+_HELVETICA_WIDTHS.update(
+    {
+        "A": 667,
+        "B": 667,
+        "C": 722,
+        "D": 722,
+        "E": 667,
+        "F": 611,
+        "G": 778,
+        "H": 722,
+        "I": 278,
+        "J": 500,
+        "K": 667,
+        "L": 556,
+        "M": 833,
+        "N": 722,
+        "O": 778,
+        "P": 667,
+        "Q": 778,
+        "R": 722,
+        "S": 667,
+        "T": 611,
+        "U": 722,
+        "V": 667,
+        "W": 944,
+        "X": 667,
+        "Y": 667,
+        "Z": 611,
+        "a": 556,
+        "b": 556,
+        "c": 500,
+        "d": 556,
+        "e": 556,
+        "f": 278,
+        "g": 556,
+        "h": 556,
+        "i": 222,
+        "j": 222,
+        "k": 500,
+        "l": 222,
+        "m": 833,
+        "n": 556,
+        "o": 556,
+        "p": 556,
+        "q": 556,
+        "r": 333,
+        "s": 500,
+        "t": 278,
+        "u": 556,
+        "v": 500,
+        "w": 722,
+        "x": 500,
+        "y": 500,
+        "z": 500,
+    }
+)
+
+
+def _pdf_text_width(value: str, font_size: float) -> float:
+    units = sum(_HELVETICA_WIDTHS.get(character, 556) for character in value)
+    return units * font_size / 1000
+
+
+def _pdf_text_offset(value: str, font_size: float, anchor: str) -> float:
+    if anchor == "middle":
+        return -_pdf_text_width(value, font_size) / 2
+    if anchor == "end":
+        return -_pdf_text_width(value, font_size)
+    return 0.0
+
+
+def _pdf_alpha_name(value: float) -> str:
+    clipped = max(0.0, min(1.0, value))
+    return f"GS{int(round(clipped * 1000)):03d}"
+
+
+def _pdf_alpha_command(
+    attrs: dict[str, str],
+    alpha_values: dict[str, float],
+) -> str:
+    raw = attrs.get("opacity") or attrs.get("fill-opacity") or attrs.get("stroke-opacity")
+    if raw is None:
+        return ""
+    alpha = _svg_float(raw, 1.0)
+    if alpha >= 1:
+        return ""
+    # SVG opacity that looks reasonable in-browser can render too washed out in
+    # paper PDFs. Keep the vector transparency but enforce a print-friendly floor.
+    alpha = max(alpha, 0.86)
+    name = _pdf_alpha_name(alpha)
+    alpha_values[name] = alpha
+    return f"/{name} gs"
+
+
+def _pdf_y(height: float, value: float) -> float:
+    return height - value
+
+
+def _svg_tag_name(element: ET.Element) -> str:
+    return element.tag.rsplit("}", 1)[-1]
+
+
+def _pdf_rect_commands(
+    attrs: dict[str, str],
+    *,
+    page_width: float,
+    page_height: float,
+) -> list[str]:
+    x = _svg_float(attrs.get("x"))
+    y = _svg_float(attrs.get("y"))
+    width = page_width if attrs.get("width") == "100%" else _svg_float(attrs.get("width"))
+    height = page_height if attrs.get("height") == "100%" else _svg_float(attrs.get("height"))
+    fill = _svg_color(attrs.get("fill"))
+    stroke = _svg_color(attrs.get("stroke"))
+    commands: list[str] = []
+    fill_command = _pdf_color_command(attrs.get("fill"), stroke=False)
+    stroke_command = _pdf_color_command(attrs.get("stroke"), stroke=True)
+    if fill_command:
+        commands.append(fill_command)
+    if stroke_command:
+        commands.append(stroke_command)
+    stroke_width = _svg_float(attrs.get("stroke-width"), 1.0)
+    if stroke is not None:
+        commands.append(f"{_pdf_number(stroke_width)} w")
+    commands.append(
+        f"{_pdf_number(x)} {_pdf_number(_pdf_y(page_height, y + height))} "
+        f"{_pdf_number(width)} {_pdf_number(height)} re"
+    )
+    if fill is not None and stroke is not None:
+        commands.append("B")
+    elif fill is not None:
+        commands.append("f")
+    elif stroke is not None:
+        commands.append("S")
+    return commands
+
+
+def _pdf_line_commands(attrs: dict[str, str], *, page_height: float) -> list[str]:
+    stroke = _svg_color(attrs.get("stroke"))
+    if stroke is None:
+        return []
+    x1 = _svg_float(attrs.get("x1"))
+    y1 = _svg_float(attrs.get("y1"))
+    x2 = _svg_float(attrs.get("x2"))
+    y2 = _svg_float(attrs.get("y2"))
+    commands = [
+        _pdf_color_command(attrs.get("stroke"), stroke=True),
+        f"{_pdf_number(_svg_float(attrs.get('stroke-width'), 1.0))} w",
+    ]
+    dash = attrs.get("stroke-dasharray")
+    if dash:
+        values = " ".join(_pdf_number(_svg_float(value)) for value in dash.split())
+        commands.append(f"[{values}] 0 d")
+    commands.append(
+        f"{_pdf_number(x1)} {_pdf_number(_pdf_y(page_height, y1))} m "
+        f"{_pdf_number(x2)} {_pdf_number(_pdf_y(page_height, y2))} l S"
+    )
+    return [command for command in commands if command]
+
+
+def _pdf_circle_path(cx: float, cy: float, radius: float, page_height: float) -> str:
+    kappa = 0.5522847498
+    c = radius * kappa
+    y = _pdf_y(page_height, cy)
+    return " ".join(
+        [
+            f"{_pdf_number(cx + radius)} {_pdf_number(y)} m",
+            f"{_pdf_number(cx + radius)} {_pdf_number(y + c)} "
+            f"{_pdf_number(cx + c)} {_pdf_number(y + radius)} "
+            f"{_pdf_number(cx)} {_pdf_number(y + radius)} c",
+            f"{_pdf_number(cx - c)} {_pdf_number(y + radius)} "
+            f"{_pdf_number(cx - radius)} {_pdf_number(y + c)} "
+            f"{_pdf_number(cx - radius)} {_pdf_number(y)} c",
+            f"{_pdf_number(cx - radius)} {_pdf_number(y - c)} "
+            f"{_pdf_number(cx - c)} {_pdf_number(y - radius)} "
+            f"{_pdf_number(cx)} {_pdf_number(y - radius)} c",
+            f"{_pdf_number(cx + c)} {_pdf_number(y - radius)} "
+            f"{_pdf_number(cx + radius)} {_pdf_number(y - c)} "
+            f"{_pdf_number(cx + radius)} {_pdf_number(y)} c",
+            "h",
+        ]
+    )
+
+
+def _pdf_circle_commands(attrs: dict[str, str], *, page_height: float) -> list[str]:
+    fill = _svg_color(attrs.get("fill"))
+    stroke = _svg_color(attrs.get("stroke"))
+    if fill is None and stroke is None:
+        return []
+    cx = _svg_float(attrs.get("cx"))
+    cy = _svg_float(attrs.get("cy"))
+    radius = _svg_float(attrs.get("r"))
+    commands: list[str] = []
+    fill_command = _pdf_color_command(attrs.get("fill"), stroke=False)
+    stroke_command = _pdf_color_command(attrs.get("stroke"), stroke=True)
+    if fill_command:
+        commands.append(fill_command)
+    if stroke_command:
+        commands.append(stroke_command)
+    if stroke is not None:
+        commands.append(f"{_pdf_number(_svg_float(attrs.get('stroke-width'), 1.0))} w")
+    commands.append(_pdf_circle_path(cx, cy, radius, page_height))
+    if fill is not None and stroke is not None:
+        commands.append("B")
+    elif fill is not None:
+        commands.append("f")
+    else:
+        commands.append("S")
+    return commands
+
+
+def _pdf_polyline_commands(attrs: dict[str, str], *, page_height: float) -> list[str]:
+    stroke = _svg_color(attrs.get("stroke"))
+    points_raw = attrs.get("points", "")
+    if stroke is None or not points_raw.strip():
+        return []
+    points: list[tuple[float, float]] = []
+    for raw_pair in points_raw.split():
+        if "," not in raw_pair:
+            continue
+        x_raw, y_raw = raw_pair.split(",", 1)
+        points.append((_svg_float(x_raw), _svg_float(y_raw)))
+    if not points:
+        return []
+    path = [
+        f"{_pdf_number(points[0][0])} {_pdf_number(_pdf_y(page_height, points[0][1]))} m"
+    ]
+    path.extend(
+        f"{_pdf_number(x)} {_pdf_number(_pdf_y(page_height, y))} l"
+        for x, y in points[1:]
+    )
+    commands = [
+        _pdf_color_command(attrs.get("stroke"), stroke=True),
+        f"{_pdf_number(_svg_float(attrs.get('stroke-width'), 1.0))} w",
+        "1 J 1 j",
+    ]
+    dash = attrs.get("stroke-dasharray")
+    if dash:
+        values = " ".join(_pdf_number(_svg_float(value)) for value in dash.split())
+        commands.append(f"[{values}] 0 d")
+    commands.extend([" ".join(path), "S"])
+    return commands
+
+
+def _pdf_text_commands(attrs: dict[str, str], value: str, *, page_height: float) -> list[str]:
+    if not value:
+        return []
+    fill_command = _pdf_color_command(attrs.get("fill", "#111111"), stroke=False)
+    font_size = _svg_float(attrs.get("font-size"), 10.0)
+    anchor = attrs.get("text-anchor", "start")
+    x = _svg_float(attrs.get("x"))
+    y = _svg_float(attrs.get("y"))
+    offset = _pdf_text_offset(value, font_size, anchor)
+    escaped = _pdf_escape_text(value)
+    commands = [fill_command, f"BT /F1 {_pdf_number(font_size)} Tf"]
+    transform = attrs.get("transform", "")
+    rotate_match = re.search(r"rotate\(([-0-9.]+)(?:\s+[-0-9.]+\s+[-0-9.]+)?\)", transform)
+    if rotate_match:
+        # SVG's y-axis points down; PDF's points up, so the visual angle flips.
+        angle = -math.radians(float(rotate_match.group(1)))
+        cos_value = math.cos(angle)
+        sin_value = math.sin(angle)
+        commands.extend(
+            [
+                f"1 0 0 1 {_pdf_number(x)} {_pdf_number(_pdf_y(page_height, y))} cm",
+                f"{_pdf_number(cos_value)} {_pdf_number(sin_value)} "
+                f"{_pdf_number(-sin_value)} {_pdf_number(cos_value)} 0 0 cm",
+                f"1 0 0 1 {_pdf_number(offset)} 0 Tm",
+            ]
+        )
+    else:
+        commands.append(
+            f"1 0 0 1 {_pdf_number(x + offset)} {_pdf_number(_pdf_y(page_height, y))} Tm"
+        )
+    commands.append(f"({escaped}) Tj ET")
+    return [command for command in commands if command]
+
+
+def _pdf_stream_from_svg(svg: str) -> tuple[float, float, str, dict[str, float]]:
+    root = ET.fromstring(svg)
+    width = _svg_float(root.attrib.get("width"), 420.0)
+    height = _svg_float(root.attrib.get("height"), 330.0)
+    alpha_values: dict[str, float] = {}
+    commands: list[str] = []
+    for element in root:
+        tag = _svg_tag_name(element)
+        attrs = {str(key): str(value) for key, value in element.attrib.items()}
+        body: list[str]
+        if tag == "rect":
+            body = _pdf_rect_commands(attrs, page_width=width, page_height=height)
+        elif tag == "line":
+            body = _pdf_line_commands(attrs, page_height=height)
+        elif tag == "circle":
+            body = _pdf_circle_commands(attrs, page_height=height)
+        elif tag == "polyline":
+            body = _pdf_polyline_commands(attrs, page_height=height)
+        elif tag == "text":
+            body = _pdf_text_commands(attrs, element.text or "", page_height=height)
+        else:
+            continue
+        if not body:
+            continue
+        commands.append("q")
+        alpha_command = _pdf_alpha_command(attrs, alpha_values)
+        if alpha_command:
+            commands.append(alpha_command)
+        commands.extend(body)
+        commands.append("Q")
+    return width, height, "\n".join(commands), alpha_values
+
+
+def _write_pdf_from_svg(path: Path, svg: str) -> Path:
+    width, height, stream, alpha_values = _pdf_stream_from_svg(svg)
+    stream_bytes = (stream + "\n").encode("utf-8")
+    alpha_names = sorted(alpha_values)
+    font_id = 3
+    alpha_object_ids = {name: index + 4 for index, name in enumerate(alpha_names)}
+    contents_id = 4 + len(alpha_names)
+    page_id = contents_id + 1
+    max_object_id = page_id
+
+    ext_gstate = ""
+    if alpha_object_ids:
+        states = " ".join(
+            f"/{name} {object_id} 0 R"
+            for name, object_id in alpha_object_ids.items()
+        )
+        ext_gstate = f" /ExtGState << {states} >>"
+
+    objects: dict[int, bytes] = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: f"<< /Type /Pages /Kids [{page_id} 0 R] /Count 1 >>".encode(),
+        font_id: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        contents_id: (
+            f"<< /Length {len(stream_bytes)} >>\nstream\n".encode()
+            + stream_bytes
+            + b"endstream"
+        ),
+        page_id: (
+            f"<< /Type /Page /Parent 2 0 R "
+            f"/MediaBox [0 0 {_pdf_number(width)} {_pdf_number(height)}] "
+            f"/Resources << /Font << /F1 {font_id} 0 R >>{ext_gstate} >> "
+            f"/Contents {contents_id} 0 R >>"
+        ).encode(),
+    }
+    for name, object_id in alpha_object_ids.items():
+        alpha = _pdf_number(alpha_values[name])
+        objects[object_id] = (
+            f"<< /Type /ExtGState /ca {alpha} /CA {alpha} >>"
+        ).encode()
+
+    output = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0] * (max_object_id + 1)
+    for object_id in range(1, max_object_id + 1):
+        offsets[object_id] = len(output)
+        output.extend(f"{object_id} 0 obj\n".encode())
+        output.extend(objects[object_id])
+        output.extend(b"\nendobj\n")
+    xref_offset = len(output)
+    output.extend(f"xref\n0 {max_object_id + 1}\n".encode())
+    output.extend(b"0000000000 65535 f \n")
+    for object_id in range(1, max_object_id + 1):
+        output.extend(f"{offsets[object_id]:010d} 00000 n \n".encode())
+    output.extend(
+        (
+            f"trailer\n<< /Size {max_object_id + 1} /Root 1 0 R >>\n"
+            f"startxref\n{xref_offset}\n%%EOF\n"
+        ).encode()
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(bytes(output))
+    return path
+
+
+def _write_paper_vector(path: Path, svg: str, *, pdf: bool) -> Path:
+    _write(path, svg)
+    if pdf:
+        _write_pdf_from_svg(path.with_suffix(".pdf"), svg)
     return path
 
 
@@ -852,10 +1319,74 @@ def _paper_feature_label(feature: str) -> str:
     if feature == "raw":
         return "LoRA-NTK"
     if feature == "thresholded_sign":
-        return "Signed LoRA-NTK"
+        return "Thresholded-sign LoRA-NTK"
     if feature == "sign":
         return "Sign LoRA-NTK"
     return feature.replace("_", " ")
+
+
+def _paper_feature_color(feature: str) -> str:
+    colors = {
+        "raw": "#111111",
+        "thresholded_sign": "#d62728",
+        "sign": "#9467bd",
+    }
+    return colors.get(feature, _COLORS[len(feature) % len(_COLORS)])
+
+
+def _paper_tick_label(value: float, *, compact: bool = False) -> str:
+    abs_value = abs(value)
+    if abs_value >= 100:
+        return f"{value:.0f}"
+    if abs_value >= 10:
+        return f"{value:.1f}"
+    if abs_value >= 1:
+        return f"{value:.2f}"
+    if compact and abs_value < 0.1 and value != 0:
+        return f"{value:.3f}"
+    if abs_value >= 0.01 or value == 0:
+        return f"{value:.2f}" if compact else f"{value:.3f}"
+    return f"{value:.4f}"
+
+
+def _paper_ticks(low: float, high: float, count: int = 6) -> list[float]:
+    if count <= 1 or low == high:
+        return [low]
+    return [low + (high - low) * index / (count - 1) for index in range(count)]
+
+
+def _paper_rmse_gain_value(summary: dict[str, Any]) -> float | None:
+    value = _number(summary.get("test_delta_rmse_gain"))
+    if value is not None:
+        return value
+    krr_rmse = _number(_nested(summary, "eval.test.delta.rmse"))
+    baseline_rmse = _number(_nested(summary, "baseline.test.delta.rmse"))
+    if baseline_rmse is None:
+        baseline_rmse = _number(summary.get("test_baseline_delta_rmse"))
+    if baseline_rmse is None or krr_rmse is None:
+        return None
+    return baseline_rmse - krr_rmse
+
+
+def _paper_baseline_rmse_value(summary: dict[str, Any]) -> float | None:
+    value = _number(summary.get("test_baseline_delta_rmse"))
+    if value is not None:
+        return value
+    value = _number(_nested(summary, "baseline.test.delta.rmse"))
+    if value is not None:
+        return value
+    return _number(_nested(summary, "eval.test.baseline.delta.rmse"))
+
+
+def _paper_krr_rmse_value(summary: dict[str, Any]) -> float | None:
+    value = _number(_nested(summary, "eval.test.delta.rmse"))
+    if value is not None:
+        return value
+    baseline_rmse = _paper_baseline_rmse_value(summary)
+    gain = _paper_rmse_gain_value(summary)
+    if baseline_rmse is None or gain is None:
+        return None
+    return baseline_rmse - gain
 
 
 def _paper_summary_matches_adapter(
@@ -1144,6 +1675,442 @@ def _paper_rmse_gain_svg(
     return "\n".join(parts)
 
 
+def _paper_prediction_single_svg(
+    experiment: str,
+    train_size: int,
+    features: list[str],
+    selected: dict[tuple[str, int, str], dict[str, Any]],
+    *,
+    split: str,
+) -> str:
+    width = 420
+    height = 330
+    left = 58
+    right = 18
+    top = 38
+    bottom = 50
+    plot_w = width - left - right
+    plot_h = height - top - bottom
+    title = f"{experiment}, k = {train_size}"
+    points_by_feature: dict[str, list[tuple[float, float]]] = {}
+    values: list[float] = []
+    for feature in features:
+        summary = selected.get((experiment, train_size, feature))
+        points = (
+            _kernel_prediction_points(summary, split=split)
+            if summary is not None
+            else []
+        )
+        points_by_feature[feature] = points
+        values.extend([value for point in points for value in point])
+    xmin, xmax = _axis_bounds(values)
+    ymin, ymax = xmin, xmax
+
+    def sx(value: float) -> float:
+        return left + ((value - xmin) / (xmax - xmin)) * plot_w
+
+    def sy(value: float) -> float:
+        return top + plot_h - ((value - ymin) / (ymax - ymin)) * plot_h
+
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="#ffffff"/>',
+        f'<text x="{left + plot_w / 2:.1f}" y="22" text-anchor="middle" font-family="Arial" font-size="12" fill="#111111">{_escape(title)}</text>',
+        f'<text x="{left + plot_w / 2:.1f}" y="{height - 10}" text-anchor="middle" font-family="Arial" font-size="10" fill="#111111">true score delta</text>',
+        f'<text x="14" y="{top + plot_h / 2:.1f}" text-anchor="middle" transform="rotate(-90 14 {top + plot_h / 2:.1f})" font-family="Arial" font-size="10" fill="#111111">predicted score delta</text>',
+    ]
+    for value in _paper_ticks(xmin, xmax, 6):
+        x = sx(value)
+        y = sy(value)
+        parts.append(
+            f'<line x1="{x:.1f}" y1="{top}" x2="{x:.1f}" y2="{top + plot_h}" stroke="#d9d9d9" stroke-width="0.6"/>'
+        )
+        parts.append(
+            f'<line x1="{left}" y1="{y:.1f}" x2="{left + plot_w}" y2="{y:.1f}" stroke="#d9d9d9" stroke-width="0.6"/>'
+        )
+        parts.append(
+            f'<line x1="{x:.1f}" y1="{top + plot_h}" x2="{x:.1f}" y2="{top + plot_h + 3.5}" stroke="#111111" stroke-width="0.8"/>'
+        )
+        parts.append(
+            f'<line x1="{left - 3.5}" y1="{y:.1f}" x2="{left}" y2="{y:.1f}" stroke="#111111" stroke-width="0.8"/>'
+        )
+        parts.append(
+            f'<text x="{x:.1f}" y="{top + plot_h + 16}" text-anchor="middle" font-family="Arial" font-size="10" fill="#111111">{_paper_tick_label(value, compact=True)}</text>'
+        )
+        parts.append(
+            f'<text x="{left - 7}" y="{y + 3.5:.1f}" text-anchor="end" font-family="Arial" font-size="10" fill="#111111">{_paper_tick_label(value, compact=True)}</text>'
+        )
+    parts.append(
+        f'<line x1="{sx(xmin):.1f}" y1="{sy(xmin):.1f}" x2="{sx(xmax):.1f}" y2="{sy(xmax):.1f}" stroke="#111111" stroke-width="1.2" stroke-dasharray="5.5 2.4"/>'
+    )
+    for feature in features:
+        color = _paper_feature_color(feature)
+        for x_value, y_value in points_by_feature.get(feature, []):
+            parts.append(
+                f'<circle cx="{sx(x_value):.1f}" cy="{sy(y_value):.1f}" r="2.3" fill="{color}" opacity="0.62"/>'
+            )
+    parts.append(
+        f'<rect x="{left}" y="{top}" width="{plot_w}" height="{plot_h}" fill="none" stroke="#111111" stroke-width="0.8"/>'
+    )
+    legend_w = 200
+    legend_h = 40 + 18 * max(len(features) - 1, 0)
+    legend_x = left + 8
+    legend_y = top + 10
+    parts.append(
+        f'<rect x="{legend_x}" y="{legend_y}" width="{legend_w}" height="{legend_h}" rx="2" fill="#ffffff" stroke="#cccccc" stroke-width="0.8"/>'
+    )
+    parts.append(
+        f'<line x1="{legend_x + 10}" y1="{legend_y + 12}" x2="{legend_x + 34}" y2="{legend_y + 12}" stroke="#111111" stroke-width="1.2" stroke-dasharray="5.5 2.4"/>'
+    )
+    parts.append(
+        f'<text x="{legend_x + 42}" y="{legend_y + 15}" font-family="Arial" font-size="10" fill="#111111">ideal</text>'
+    )
+    for index, feature in enumerate(features):
+        y = legend_y + 30 + 18 * index
+        color = _paper_feature_color(feature)
+        parts.append(f'<circle cx="{legend_x + 22}" cy="{y - 3}" r="3" fill="{color}" opacity="0.8"/>')
+        parts.append(
+            f'<text x="{legend_x + 42}" y="{y}" font-family="Arial" font-size="10" fill="#111111">{_escape(_paper_feature_label(feature))}</text>'
+        )
+    parts.append("</svg>")
+    return "\n".join(parts)
+
+
+def _paper_rmse_gain_single_svg(
+    experiment: str,
+    train_sizes: list[int],
+    features: list[str],
+    selected: dict[tuple[str, int, str], dict[str, Any]],
+) -> str:
+    width = 420
+    height = 330
+    left = 60
+    right = 18
+    top = 38
+    bottom = 50
+    plot_w = width - left - right
+    plot_h = height - top - bottom
+    values_by_feature: dict[str, list[tuple[int, float]]] = {}
+    y_values: list[float] = []
+    for feature in features:
+        values: list[tuple[int, float]] = []
+        for train_size in sorted(train_sizes):
+            summary = selected.get((experiment, train_size, feature))
+            if summary is None:
+                continue
+            value = _paper_rmse_gain_value(summary)
+            if value is None:
+                continue
+            values.append((train_size, value))
+            y_values.append(value)
+        values_by_feature[feature] = values
+    raw_ymin = min(y_values) if y_values else 0.0
+    raw_ymax = max(y_values) if y_values else 1.0
+    has_negative_gain = raw_ymin < 0
+    if has_negative_gain:
+        padding = (raw_ymax - raw_ymin) * 0.08 or 1.0
+        ymin = raw_ymin - padding
+        ymax = raw_ymax + padding
+    else:
+        ymin = 0.0
+        ymax = raw_ymax + (abs(raw_ymax) * 0.08 or 1.0)
+    xmin, xmax = _axis_bounds([float(value) for value in train_sizes])
+
+    def sx(value: float) -> float:
+        return left + ((value - xmin) / (xmax - xmin)) * plot_w
+
+    def sy(value: float) -> float:
+        return top + plot_h - ((value - ymin) / (ymax - ymin)) * plot_h
+
+    title = f"{experiment}: baseline improvement"
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="#ffffff"/>',
+        f'<text x="{left + plot_w / 2:.1f}" y="22" text-anchor="middle" font-family="Arial" font-size="12" fill="#111111">{_escape(title)}</text>',
+        f'<text x="{left + plot_w / 2:.1f}" y="{height - 10}" text-anchor="middle" font-family="Arial" font-size="10" fill="#111111">kernel fit examples (k)</text>',
+        f'<text x="14" y="{top + plot_h / 2:.1f}" text-anchor="middle" transform="rotate(-90 14 {top + plot_h / 2:.1f})" font-family="Arial" font-size="10" fill="#111111">baseline RMSE - KRR RMSE</text>',
+    ]
+    for y_value in _paper_ticks(ymin, ymax, 6):
+        y = sy(y_value)
+        parts.append(
+            f'<line x1="{left}" y1="{y:.1f}" x2="{left + plot_w}" y2="{y:.1f}" stroke="#d9d9d9" stroke-width="0.6"/>'
+        )
+        parts.append(
+            f'<line x1="{left - 3.5}" y1="{y:.1f}" x2="{left}" y2="{y:.1f}" stroke="#111111" stroke-width="0.8"/>'
+        )
+        parts.append(
+            f'<text x="{left - 7}" y="{y + 3.5:.1f}" text-anchor="end" font-family="Arial" font-size="10" fill="#111111">{_paper_tick_label(y_value)}</text>'
+        )
+    for train_size in sorted(train_sizes):
+        x = sx(train_size)
+        parts.append(
+            f'<line x1="{x:.1f}" y1="{top}" x2="{x:.1f}" y2="{top + plot_h}" stroke="#e6e6e6" stroke-width="0.6"/>'
+        )
+        parts.append(
+            f'<line x1="{x:.1f}" y1="{top + plot_h}" x2="{x:.1f}" y2="{top + plot_h + 3.5}" stroke="#111111" stroke-width="0.8"/>'
+        )
+        parts.append(
+            f'<text x="{x:.1f}" y="{top + plot_h + 16}" text-anchor="middle" font-family="Arial" font-size="10" fill="#111111">{train_size}</text>'
+        )
+    for feature in features:
+        points = values_by_feature.get(feature, [])
+        if not points:
+            continue
+        color = _paper_feature_color(feature)
+        line_points = " ".join(f"{sx(x):.1f},{sy(y):.1f}" for x, y in points)
+        parts.append(
+            f'<polyline points="{line_points}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>'
+        )
+        for x_value, y_value in points:
+            parts.append(
+                f'<circle cx="{sx(x_value):.1f}" cy="{sy(y_value):.1f}" r="3.4" fill="#ffffff" stroke="{color}" stroke-width="1.5"/>'
+            )
+    parts.append(
+        f'<rect x="{left}" y="{top}" width="{plot_w}" height="{plot_h}" fill="none" stroke="#111111" stroke-width="0.8"/>'
+    )
+    legend_w = 200
+    legend_h = 29 + 20 * max(len(features) - 1, 0)
+    legend_x = left + plot_w - legend_w - 8
+    if has_negative_gain:
+        legend_y = top + (plot_h - legend_h) / 2
+    else:
+        legend_y = top + plot_h - legend_h - 8
+    parts.append(
+        f'<rect x="{legend_x}" y="{legend_y}" width="{legend_w}" height="{legend_h}" rx="2" fill="#ffffff" stroke="#cccccc" stroke-width="0.8"/>'
+    )
+    for index, feature in enumerate(features):
+        y = legend_y + 19 + 20 * index
+        color = _paper_feature_color(feature)
+        parts.append(
+            f'<line x1="{legend_x + 10}" y1="{y - 4}" x2="{legend_x + 34}" y2="{y - 4}" stroke="{color}" stroke-width="1.5"/>'
+        )
+        parts.append(
+            f'<circle cx="{legend_x + 22}" cy="{y - 4}" r="3" fill="#ffffff" stroke="{color}" stroke-width="1.3"/>'
+        )
+        parts.append(
+            f'<text x="{legend_x + 42}" y="{y - 1}" font-family="Arial" font-size="10" fill="#111111">{_escape(_paper_feature_label(feature))}</text>'
+        )
+    parts.append("</svg>")
+    return "\n".join(parts)
+
+
+def _paper_rmse_single_svg(
+    experiment: str,
+    train_sizes: list[int],
+    features: list[str],
+    selected: dict[tuple[str, int, str], dict[str, Any]],
+) -> str:
+    width = 420
+    height = 330
+    left = 60
+    right = 18
+    top = 38
+    bottom = 50
+    plot_w = width - left - right
+    plot_h = height - top - bottom
+    values_by_feature: dict[str, list[tuple[int, float]]] = {}
+    baseline_by_train_size: list[tuple[int, float]] = []
+    y_values: list[float] = []
+
+    for feature in features:
+        values: list[tuple[int, float]] = []
+        for train_size in sorted(train_sizes):
+            summary = selected.get((experiment, train_size, feature))
+            if summary is None:
+                continue
+            value = _paper_krr_rmse_value(summary)
+            if value is None:
+                continue
+            values.append((train_size, value))
+            y_values.append(value)
+        values_by_feature[feature] = values
+
+    for train_size in sorted(train_sizes):
+        baseline_value: float | None = None
+        for feature in features:
+            summary = selected.get((experiment, train_size, feature))
+            if summary is None:
+                continue
+            baseline_value = _paper_baseline_rmse_value(summary)
+            if baseline_value is not None:
+                break
+        if baseline_value is None:
+            continue
+        baseline_by_train_size.append((train_size, baseline_value))
+        y_values.append(baseline_value)
+
+    ymin = 0.0
+    ymax = max(y_values) if y_values else 1.0
+    ymax += abs(ymax - ymin) * 0.08 or 1.0
+    xmin, xmax = _axis_bounds([float(value) for value in train_sizes])
+
+    def sx(value: float) -> float:
+        return left + ((value - xmin) / (xmax - xmin)) * plot_w
+
+    def sy(value: float) -> float:
+        return top + plot_h - ((value - ymin) / (ymax - ymin)) * plot_h
+
+    title = f"{experiment}: test RMSE"
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="#ffffff"/>',
+        f'<text x="{left + plot_w / 2:.1f}" y="22" text-anchor="middle" font-family="Arial" font-size="12" fill="#111111">{_escape(title)}</text>',
+        f'<text x="{left + plot_w / 2:.1f}" y="{height - 10}" text-anchor="middle" font-family="Arial" font-size="10" fill="#111111">kernel fit examples (k)</text>',
+        f'<text x="14" y="{top + plot_h / 2:.1f}" text-anchor="middle" transform="rotate(-90 14 {top + plot_h / 2:.1f})" font-family="Arial" font-size="10" fill="#111111">test score-delta RMSE</text>',
+    ]
+    for y_value in _paper_ticks(ymin, ymax, 6):
+        y = sy(y_value)
+        parts.append(
+            f'<line x1="{left}" y1="{y:.1f}" x2="{left + plot_w}" y2="{y:.1f}" stroke="#d9d9d9" stroke-width="0.6"/>'
+        )
+        parts.append(
+            f'<line x1="{left - 3.5}" y1="{y:.1f}" x2="{left}" y2="{y:.1f}" stroke="#111111" stroke-width="0.8"/>'
+        )
+        parts.append(
+            f'<text x="{left - 7}" y="{y + 3.5:.1f}" text-anchor="end" font-family="Arial" font-size="10" fill="#111111">{_paper_tick_label(y_value)}</text>'
+        )
+    for train_size in sorted(train_sizes):
+        x = sx(train_size)
+        parts.append(
+            f'<line x1="{x:.1f}" y1="{top}" x2="{x:.1f}" y2="{top + plot_h}" stroke="#e6e6e6" stroke-width="0.6"/>'
+        )
+        parts.append(
+            f'<line x1="{x:.1f}" y1="{top + plot_h}" x2="{x:.1f}" y2="{top + plot_h + 3.5}" stroke="#111111" stroke-width="0.8"/>'
+        )
+        parts.append(
+            f'<text x="{x:.1f}" y="{top + plot_h + 16}" text-anchor="middle" font-family="Arial" font-size="10" fill="#111111">{train_size}</text>'
+        )
+
+    if baseline_by_train_size:
+        baseline_points = " ".join(
+            f"{sx(x):.1f},{sy(y):.1f}" for x, y in baseline_by_train_size
+        )
+        parts.append(
+            f'<polyline points="{baseline_points}" fill="none" stroke="#555555" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="5.5 2.4"/>'
+        )
+    for feature in features:
+        points = values_by_feature.get(feature, [])
+        if not points:
+            continue
+        color = _paper_feature_color(feature)
+        line_points = " ".join(f"{sx(x):.1f},{sy(y):.1f}" for x, y in points)
+        parts.append(
+            f'<polyline points="{line_points}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>'
+        )
+        for x_value, y_value in points:
+            parts.append(
+                f'<circle cx="{sx(x_value):.1f}" cy="{sy(y_value):.1f}" r="3.4" fill="#ffffff" stroke="{color}" stroke-width="1.5"/>'
+            )
+
+    parts.append(
+        f'<rect x="{left}" y="{top}" width="{plot_w}" height="{plot_h}" fill="none" stroke="#111111" stroke-width="0.8"/>'
+    )
+    legend_w = 210
+    legend_h = 68
+    if experiment.strip().lower() == "dolly":
+        legend_x = left + plot_w - legend_w - 8
+        legend_y = top + plot_h * 0.18
+    else:
+        legend_x = left + 8
+        legend_y = top + plot_h - legend_h - 8
+    parts.append(
+        f'<rect x="{legend_x}" y="{legend_y}" width="{legend_w}" height="{legend_h}" rx="2" fill="#ffffff" stroke="#cccccc" stroke-width="0.8"/>'
+    )
+    baseline_y = legend_y + 18
+    parts.append(
+        f'<line x1="{legend_x + 10}" y1="{baseline_y - 4}" x2="{legend_x + 34}" y2="{baseline_y - 4}" stroke="#555555" stroke-width="1.4" stroke-dasharray="5.5 2.4"/>'
+    )
+    parts.append(
+        f'<text x="{legend_x + 42}" y="{baseline_y - 1}" font-family="Arial" font-size="10" fill="#111111">Train-mean baseline</text>'
+    )
+    for index, feature in enumerate(features):
+        y = legend_y + 38 + 20 * index
+        color = _paper_feature_color(feature)
+        parts.append(
+            f'<line x1="{legend_x + 10}" y1="{y - 4}" x2="{legend_x + 34}" y2="{y - 4}" stroke="{color}" stroke-width="1.5"/>'
+        )
+        parts.append(
+            f'<circle cx="{legend_x + 22}" cy="{y - 4}" r="3" fill="#ffffff" stroke="{color}" stroke-width="1.3"/>'
+        )
+        parts.append(
+            f'<text x="{legend_x + 42}" y="{y - 1}" font-family="Arial" font-size="10" fill="#111111">{_escape(_paper_feature_label(feature))}</text>'
+        )
+    parts.append("</svg>")
+    return "\n".join(parts)
+
+
+def _generate_individual_kernel_paper_plots(
+    experiments: list[str],
+    train_sizes: list[int],
+    features: list[str],
+    selected: dict[tuple[str, int, str], dict[str, Any]],
+    output_dir: Path,
+    *,
+    split: str,
+    pdf: bool,
+) -> list[PlotArtifact]:
+    artifacts: list[PlotArtifact] = []
+    for experiment in experiments:
+        experiment_slug = _slug(experiment)
+        for train_size in sorted(train_sizes):
+            path = output_dir / f"{experiment_slug}_predicted_vs_true_k{train_size}.svg"
+            _write_paper_vector(
+                path,
+                _paper_prediction_single_svg(
+                    experiment,
+                    train_size,
+                    features,
+                    selected,
+                    split=split,
+                ),
+                pdf=pdf,
+            )
+            artifacts.append(
+                PlotArtifact(
+                    f"{experiment}: Predicted vs True, k={train_size}",
+                    path,
+                    "Predicted adapter score deltas against true score deltas.",
+                )
+            )
+        gain_path = output_dir / f"{experiment_slug}_rmse_gain.svg"
+        _write_paper_vector(
+            gain_path,
+            _paper_rmse_gain_single_svg(
+                experiment,
+                train_sizes,
+                features,
+                selected,
+            ),
+            pdf=pdf,
+        )
+        artifacts.append(
+            PlotArtifact(
+                f"{experiment}: Baseline RMSE Improvement",
+                gain_path,
+                "Baseline test score-delta RMSE minus KRR test score-delta RMSE.",
+            )
+        )
+        rmse_path = output_dir / f"{experiment_slug}_rmse.svg"
+        _write_paper_vector(
+            rmse_path,
+            _paper_rmse_single_svg(
+                experiment,
+                train_sizes,
+                features,
+                selected,
+            ),
+            pdf=pdf,
+        )
+        artifacts.append(
+            PlotArtifact(
+                f"{experiment}: Test RMSE",
+                rmse_path,
+                "Absolute test score-delta RMSE for KRR and train-mean baseline.",
+            )
+        )
+    return artifacts
+
+
 def generate_kernel_paper_plots(
     experiments: list[tuple[str, list[dict[str, Any]]]],
     output_dir: str | Path,
@@ -1152,6 +2119,8 @@ def generate_kernel_paper_plots(
     features: list[str] | None = None,
     adapter_contains: str | None = None,
     split: str = "test",
+    individual: bool = False,
+    pdf: bool = False,
 ) -> list[PlotArtifact]:
     output_dir = Path(output_dir)
     train_sizes = train_sizes or [16, 256, 512]
@@ -1165,8 +2134,19 @@ def generate_kernel_paper_plots(
     experiment_names = [label for label, _ in experiments]
     artifacts: list[PlotArtifact] = []
 
+    if individual:
+        return _generate_individual_kernel_paper_plots(
+            experiment_names,
+            train_sizes,
+            features,
+            selected,
+            output_dir,
+            split=split,
+            pdf=pdf,
+        )
+
     prediction_path = output_dir / "paper_kernel_predicted_vs_true.svg"
-    _write(
+    _write_paper_vector(
         prediction_path,
         _paper_prediction_grid_svg(
             experiment_names,
@@ -1176,6 +2156,7 @@ def generate_kernel_paper_plots(
             split=split,
             title="Predicted vs True Score Delta",
         ),
+        pdf=pdf,
     )
     artifacts.append(
         PlotArtifact(
@@ -1186,7 +2167,7 @@ def generate_kernel_paper_plots(
     )
 
     gain_path = output_dir / "paper_kernel_rmse_gain.svg"
-    _write(
+    _write_paper_vector(
         gain_path,
         _paper_rmse_gain_svg(
             experiment_names,
@@ -1195,6 +2176,7 @@ def generate_kernel_paper_plots(
             selected,
             title="KRR Improvement over Train-Mean Baseline",
         ),
+        pdf=pdf,
     )
     artifacts.append(
         PlotArtifact(

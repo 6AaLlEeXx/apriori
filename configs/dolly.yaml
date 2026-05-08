@@ -10,4 +10,7 @@ mlx_args:
   iters: 1200
   num_layers: 8
   max_seq_length: 512
+subset_training:
+  iters_policy: match_full_exposure
+  min_iters: 1
 notes: General instruction-following adapter built from Dolly 15K.

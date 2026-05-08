@@ -73,6 +73,16 @@ def parse_args() -> argparse.Namespace:
         default="test",
         help="Prediction split for predicted-vs-true panels.",
     )
+    parser.add_argument(
+        "--individual",
+        action="store_true",
+        help="Write one vector graphic per panel instead of combined multi-panel figures.",
+    )
+    parser.add_argument(
+        "--pdf",
+        action="store_true",
+        help="Also write matching PDF files next to the generated SVG files.",
+    )
     return parser.parse_args()
 
 
@@ -91,6 +101,8 @@ def main() -> None:
         features=list(args.features),
         adapter_contains=args.adapter_contains,
         split=args.split,
+        individual=args.individual,
+        pdf=args.pdf,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
