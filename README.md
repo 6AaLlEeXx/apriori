@@ -124,7 +124,7 @@ Important modules:
 This is a UV project. Reporting and most tests are ordinary Python. Training, adapter scoring, and score-gradient extraction use MLX-LM, so real experiments are intended for macOS on Apple Silicon.
 
 ```bash
-cd lora
+cd apriori
 uv sync --group dev
 ```
 
