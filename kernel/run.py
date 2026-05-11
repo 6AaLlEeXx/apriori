@@ -123,6 +123,17 @@ def _score_records(
     scorer: Scorer,
     records: list[PairRecord],
 ) -> list[dict[str, Any]]:
+    """
+        Utility. Takes a list of PairRecords data representation and
+        applies 'scorer' entrie-wise to get scores. Returns list of dictionaries
+        with keys
+         - 'score' : the computed score value
+         - 'pair_id' & 'split' : corresponding sample's id
+         - other metadata
+
+        for instance, 'scorer' might compute cross-entropy loss
+        scores of base or fine-tuned model.
+    """
     rows: list[dict[str, Any]] = []
     for record in records:
         score, tokens = scorer.score_record(record)
@@ -380,6 +391,24 @@ def _score_splits_with_cache(
     adapter_path: str | None,
     scorer_factory: ScorerFactory = ModelScorer,
 ) -> dict[str, list[dict[str, Any]]]:
+    """
+        Uses 'scorer_factory' to genearte an instance of scorer. Applies the scorer
+        to compute loss scores for the given records list with
+        the model specified in 'config' and the model's adapter in 'adapter_path'.
+
+        For instance, for the default 'scorer_factore', the cross-entropy loss delta
+        scores are computed.
+
+        This function makes use of caching, identifying the relevant cache path
+        by context hashing. If the scores for the given records are alredy available,
+        returns the cached data. If some are missing, computes only for the missing
+        records.
+
+        ### How is it used?
+
+        The adapter_loss - base_loss scores used to fit the kernel ridge regression model,
+        that predicts the end loss score change. To avoid extra compuation, caching is used.
+    """
     rows_by_split: dict[str, list[dict[str, Any]]] = {}
     missing: list[tuple[str, Path]] = []
     label = "base" if adapter_path is None else Path(adapter_path).name
@@ -431,6 +460,17 @@ def _extract_features_to_npy(
     backend: Any,
     records: list[PairRecord],
 ) -> tuple[Path, int]:
+    """
+        Applies backend to extract kernel features required for kernel ridge regression
+        predictions. The backend would typically generate gradient vectors w.r.t.
+        LoRA B parameters of a given model and adapter path (passed to the backend factory).
+
+        This functions ensures that the features are computed. If teh cached values are
+        available - does nothing. If pre-computed data is missing - extracts the features and
+        stores them as cached data. That is the computation is performed at most once.
+
+        Returns the cached data path. 
+    """
     if not records:
         raise ValueError("Cannot extract features for an empty split.")
     path = _feature_cache_path(config, records)
@@ -459,6 +499,17 @@ def _extract_features_to_npy(
 
 
 def _load_features(path: str | Path, config: KernelRunConfig | None = None) -> Array:
+    """
+        Loads the gradient features found in the provided path as 
+        an 2 dimensional nd array. Then applies a feature transformation (e.g. apply sign(x))
+        with transformation parameters specified in 'config'.
+
+        ### How is this used?
+
+        The raw gardient features can be used for kernel predictions as is, but
+        applying transformations like sing(x) or sparse projetcion allows for
+        drastic reduction in memory and compute load.
+    """
     features = np.load(Path(path), mmap_mode="r")
     if config is None:
         return features
@@ -473,6 +524,12 @@ def _load_features(path: str | Path, config: KernelRunConfig | None = None) -> A
 
 
 def _kernel_from_features(left: Array, right: Array) -> FloatArray:
+    r"""
+    Returns k(left, right) = <left, right> where <*,*> is the scaler product.
+    Takes care of nan, clipping inf to some big but finite value and 
+    an undefined value to 0.
+    """
+
     with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
         kernel = (
             np.asarray(left, dtype=np.float64) @ np.asarray(right, dtype=np.float64).T
@@ -487,6 +544,12 @@ def _predict_targets(
     train_features: Array,
     train_targets: FloatArray,
 ) -> tuple[Any, dict[str, Any]]:
+    """
+        Follows 'config' specifications to construct the kernel regresion model.
+        Return the model approximation type in 'method' (e.g. dual or nystrom),
+        'ridge_lambda' value (for a different ridge lambda the kernel model needs
+        to be generated again) and the model itself.
+    """
     method = config.kernel.method.lower()
     if method == "dual":
         k_train = _kernel_from_features(train_features, train_features)
