@@ -602,6 +602,12 @@ def _predict_split(
     train_features: Array,
     split_features: Array,
 ) -> FloatArray:
+    """
+        Takes fit model and adjacent data from _predict_targets as 'fitted_model' and 'fit_payload'.
+        'train_features' are the same as in _predict_targets split_features is just
+        2d nd array of some split kernel features. 'config' is used to infer the type of
+        kernel approximation method used.
+    """
     method = config.kernel.method.lower()
     if method == "dual":
         k_split_train = _kernel_from_features(split_features, train_features)
@@ -621,6 +627,8 @@ def _build_prediction_rows(
     pred_delta: FloatArray,
     baseline_delta: float | None = None,
 ) -> list[dict[str, Any]]:
+    """Just some formatting function. Organizes provided data into expected
+        list of dictionaries format."""
     rows: list[dict[str, Any]] = []
     for index, record in enumerate(records):
         base_score = float(base_scores[record.pair_id]["score"])
@@ -649,6 +657,12 @@ def _split_eval_payload(
     delta_key: str = "predicted_score_delta",
     adapter_key: str = "predicted_adapter_score",
 ) -> dict[str, Any]:
+    """
+        Runs evaluation results in 'rows' through a battery of tests and returns 
+        teh corresponding metrics.
+        'delta_key' and 'adapter_key' specify the corresponding 'rows' keys
+        where the evaluation results to be found.
+    """
     true_delta = np.asarray([row["score_delta"] for row in rows], dtype=np.float64)
     pred_delta = np.asarray(
         [row[delta_key] for row in rows],
@@ -673,6 +687,18 @@ def _build_report_markdown(
     eval_payload: dict[str, Any],
     feature_dim: int,
 ) -> str:
+    """
+        Args:
+            config : kernel specs
+            paths : emited after run, holds paths to the files with results
+            eval_payload : dictionaory holding evaluation results. Generated inside the
+                           run_kernel_experiment function
+            feature_dim : dimension of used kernel features. Reported in the generated
+                          report
+
+        This functioned is called in run_kernel)experiment to generate and store a
+        markdown report containing the main experiment data.
+    """
     lines = [
         "# Kernel Run",
         "",
