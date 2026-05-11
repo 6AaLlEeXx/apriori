@@ -277,6 +277,20 @@ def prepare_kernel_run(
     config: KernelRunConfig,
     run_name: str,
 ) -> KernelRunPaths:
+    """
+        Cute little function that prepares the folders
+        where the experimants dats will be stored.
+
+        Args:
+            config : kernel config file that specifies where the folders will
+                     be located
+            run_name : everyone must have a name, your run included. Name must be
+                       specified!
+        
+        Returns:
+            special config object containing the generated paths to where
+            the data is supposed to go.
+    """
     output_root = resolve_project_path(config.output_root)
     run_dir = output_root / "runs" / run_name
     if run_dir.exists():

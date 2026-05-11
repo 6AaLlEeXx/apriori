@@ -66,7 +66,153 @@ def _split_limits(config: KernelRunConfig) -> dict[str, tuple[int, int]]:
     }
 
 
-def validate_kernel_run_inputs(config: KernelRunConfig) -> None:
+def _for_all_splits_dup_test(splits : dict[str, list[PairRecord]], format : Any) -> bool:
+    """
+        Check for duplicate records over all split comulatively. That is,
+        if there are A=B for any A and B from any splits even if different,
+        those are considered to be duplicates.  
+
+        Args:
+            splits : records lists by splits to check the duplication for.
+            format : function PairRecord -> str that prepares a PairRecord.
+                     For instance, format can return concatenation of record's
+                     prompt and completion if full match is the duplicate 
+                     criterion.
+
+        Returns:
+            True if no dulicates are found and False otherwise
+    """
+    full_list = []
+    #merge all the splits into one list
+    for key, val in splits.items():
+        full_list.extend([format(v) for v in val])
+
+    #deduplicate with set() and check if the length change. If duplicates exist
+    #the length becomes smaller
+    res = (len(set(full_list)) == len(full_list))
+    del full_list
+    gc.collect()
+    return res
+
+
+def _across_splits_dup_test(splits : dict[str, list[PairRecord]], format : Any) -> bool:
+    """
+        Check for duplicate records only across different splits. That is,
+        if there are A=B such that A and B are in train,
+        those are not considered duplicates. But is A=B are such that
+        A is in test and B is in train, then they are considered as duplicates. 
+
+        Args:
+            splits : records lists by splits to check the duplication for.
+            format : function PairRecord -> str that prepares a PairRecord.
+                     For instance, format can return concatenation of record's
+                     prompt and completion if full match is the duplicate 
+                     criterion.
+
+        Returns:
+            True if no dulicates are found and False otherwise
+    """
+    full_set = set()
+    num = 0
+
+    #for each split, deduplicate the split and add the deduplicated
+    #split's length len(subset) to num to restore the total
+    #deduped_train + deduped_test + deduped_val
+    #then add the deduplicated set subset to the total set full_set, 
+    # to get the cross deduplication 
+
+    for key, val in splits.items():
+        subset = set([format(v) for v in val])
+        num += len(subset)
+        full_set.union(subset)
+
+    res = (len(full_set) == num)
+    del full_set
+    gc.collect()
+    return res
+
+
+def _within_splits_dup_test(splits : dict[str, list[PairRecord]], format : Any) -> bool:
+    """
+        Check for duplicate records only within each split. That is,
+        if there are A=B such that A is in train and B is in test,
+        those are not considered duplicates.  
+
+        Args:
+            splits : records lists by splits to check the duplication for.
+            format : function PairRecord -> str that prepares a PairRecord.
+                     For instance, format can return concatenation of record's
+                     prompt and completion if full match is the duplicate 
+                     criterion.
+
+        Returns:
+            True if no dulicates are found and False otherwise
+    """
+    full_list = []
+
+    #merge all splits into one list and add the split label to
+    #the record to make records from different splits automatically
+    #diferent, even if cross-split duplicates exist
+
+    for key, val in splits.items():
+        full_list.extend([key + format(v) for v in val])
+
+    res = (len(set(full_list)) == len(full_list))
+    del full_list
+    gc.collect()
+    return res
+        
+
+def _normalize_name(name: str) -> str:
+    return name.strip().lower().replace("-", "_")
+
+
+def _resolve_dup_test(dup_test: dict[str,str]) -> Any:
+    """
+        Takes test specificatons 'dup_test' of the form:
+            dup_test = {'compare_method' : METHOD,
+                        'splits_strategy' : STRATEGY}
+
+        Returns the test function. 
+
+        Test function is applyed in validate_kernel_run_inputs to
+        records splits to check if, for example, there are same
+        prompt-completion pairs in train and test data.
+    """
+    label = _normalize_name(dup_test["compare_method"])
+    strategy = _normalize_name(dup_test["splits_strategy"])
+
+    if not label in {"full", "prompt", "completion"}:
+        raise ValueError(f"Provided duplicates test name ({label}) is not supported.")
+    if not strategy in {"across", "all", "within"}:
+        raise ValueError(f"Provided duplicates test strategy ({strategy}) is not supported.")
+
+    apply_format = lambda record : str(record.prompt)+str(record.completion)
+
+    if label == "prompt":
+        apply_format = lambda record : str(record.prompt)
+    if label == "completion":
+        apply_format = lambda record : str(record.completion)
+
+    apply_strategy = _across_splits_dup_test
+
+    if strategy == "all":
+        apply_strategy = _for_all_splits_dup_test
+    if strategy == "within":
+        apply_strategy = _within_splits_dup_test
+
+    return lambda x : apply_strategy(x, apply_format)
+
+
+def validate_kernel_run_inputs(
+        config: KernelRunConfig, 
+        dup_test: dict[str,str] = {"compare_method" : "full",
+                                   "splits_strategy" : "across"}
+        ) -> None:
+
+    test = _resolve_dup_test(dup_test) #run resolve in the start in case an error is thrown
+    record_splits = dict() #collect all sampled splits in here
+
     data_dir = resolve_project_path(config.data_dir)
     for split, (limit, seed) in _split_limits(config).items():
         split_path = data_dir / f"{split}.jsonl"
@@ -81,6 +227,9 @@ def validate_kernel_run_inputs(config: KernelRunConfig) -> None:
         sampled = maybe_subset_pairs(records, limit=limit, seed=seed)
         if not sampled:
             raise ValueError(f"Kernel data split has no sampled records: {split_path}")
+        
+        record_splits[split] = sampled
+
         for record in sampled:
             if not record.prompt.strip():
                 raise ValueError(
@@ -92,6 +241,9 @@ def validate_kernel_run_inputs(config: KernelRunConfig) -> None:
                     f"Kernel data row has empty `completion`: "
                     f"{split_path} ({record.pair_id})"
                 )
+
+    if not test(record_splits):
+        raise ValueError(f"Duplicate records are found.")
 
     adapter_dir = resolve_project_path(config.adapter_path)
     if not adapter_dir.exists():
