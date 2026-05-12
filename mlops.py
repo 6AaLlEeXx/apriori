@@ -533,6 +533,15 @@ def prepare_sampled_data_dir(
     max_example: int | None = None,
     selector_context: dict[str, Any] | None = None,
 ) -> tuple[Path, dict[str, Any]]:
+    """
+        This guy looks for jsonl train data down the
+        'source_data_dir', loads it and samples from it
+        at most 'max_example' samples that are then stored
+        in run_dir/data/train.jsonl
+
+        Returns the stored samples directory and some
+        metadata.
+    """
     source_data_dir = resolve_project_path(source_data_dir)
     run_dir = Path(run_dir)
     sampled_data_dir = run_dir / "data"
