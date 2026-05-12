@@ -66,7 +66,38 @@ def _split_limits(config: KernelRunConfig) -> dict[str, tuple[int, int]]:
     }
 
 
-def _for_all_splits_dup_test(splits : dict[str, list[PairRecord]], format : Any) -> bool:
+def _duplecates_in_list(L : list[Any], format : Any, include_first=True) -> list[Any]:
+    """
+        Args:
+            L : some given list
+            format : function that takes an element from L and extracts it's
+                     value that will be used for duplicate detection 
+        Returns:
+            list of duplicate's indices and values
+    """
+    idxs = []
+    cache = dict()
+
+    for idx, l in enumerate(L):
+        formal = format(l)
+
+        if not formal in cache.keys():
+            cache[formal] = [idx,0]
+
+        cache[formal][1] += 1
+
+        if cache[formal][1] == 2 and include_first: 
+            idxs.append(cache[formal][0])
+
+        if cache[formal][1] > 1: 
+            idxs.append(idx)
+    
+    del cache
+    gc.collect()
+    return idxs
+
+
+def _for_all_splits_dup_test(splits : dict[str, list[PairRecord]], format : Any) -> list[Any]:
     """
         Check for duplicate records over all split comulatively. That is,
         if there are A=B for any A and B from any splits even if different,
@@ -80,22 +111,23 @@ def _for_all_splits_dup_test(splits : dict[str, list[PairRecord]], format : Any)
                      criterion.
 
         Returns:
-            True if no dulicates are found and False otherwise
+            List of all duplicate 'pair_id's
     """
-    full_list = []
-    #merge all the splits into one list
+    merged_list = []
+
     for key, val in splits.items():
-        full_list.extend([format(v) for v in val])
+        merged_list.extend(val)
 
-    #deduplicate with set() and check if the length change. If duplicates exist
-    #the length becomes smaller
-    res = (len(set(full_list)) == len(full_list))
-    del full_list
+    duplicates_idx = _duplecates_in_list(merged_list, format)
+    duplicates_ID = [merged_list[i].pair_id for i in duplicates_idx]
+
+    del merged_list
+    del duplicates_idx
     gc.collect()
-    return res
+    return duplicates_ID
 
 
-def _across_splits_dup_test(splits : dict[str, list[PairRecord]], format : Any) -> bool:
+def _across_splits_dup_test(splits : dict[str, list[PairRecord]], format : Any) -> list[Any]:
     """
         Check for duplicate records only across different splits. That is,
         if there are A=B such that A and B are in train,
@@ -110,29 +142,24 @@ def _across_splits_dup_test(splits : dict[str, list[PairRecord]], format : Any) 
                      criterion.
 
         Returns:
-            True if no dulicates are found and False otherwise
+            List of all duplicate 'pair_id's
     """
-    full_set = set()
-    num = 0
-
-    #for each split, deduplicate the split and add the deduplicated
-    #split's length len(subset) to num to restore the total
-    #deduped_train + deduped_test + deduped_val
-    #then add the deduplicated set subset to the total set full_set, 
-    # to get the cross deduplication 
+    merged_list = []
 
     for key, val in splits.items():
-        subset = set([format(v) for v in val])
-        num += len(subset)
-        full_set.union(subset)
+        ignore = set(_duplecates_in_list(val, format, include_first=False))
+        merged_list.extend([val[idx] for idx in range(len(val)) if idx not in ignore])
+    
+    duplicates_idx = _duplecates_in_list(merged_list, format)
+    duplicates_ID = [merged_list[i].pair_id for i in duplicates_idx]
 
-    res = (len(full_set) == num)
-    del full_set
+    del merged_list
+    del duplicates_idx
     gc.collect()
-    return res
+    return duplicates_ID
 
 
-def _within_splits_dup_test(splits : dict[str, list[PairRecord]], format : Any) -> bool:
+def _within_splits_dup_test(splits : dict[str, list[PairRecord]], format : Any) -> list[Any]:
     """
         Check for duplicate records only within each split. That is,
         if there are A=B such that A is in train and B is in test,
@@ -146,21 +173,24 @@ def _within_splits_dup_test(splits : dict[str, list[PairRecord]], format : Any) 
                      criterion.
 
         Returns:
-            True if no dulicates are found and False otherwise
+            List of all duplicate 'pair_id's
     """
-    full_list = []
-
-    #merge all splits into one list and add the split label to
-    #the record to make records from different splits automatically
-    #diferent, even if cross-split duplicates exist
+    merged_list = []
 
     for key, val in splits.items():
-        full_list.extend([key + format(v) for v in val])
+        merged_list.extend(val)
 
-    res = (len(set(full_list)) == len(full_list))
-    del full_list
+    duplicates_idx = _duplecates_in_list(
+                            merged_list, 
+                            lambda x : str(x.split)+format(x)
+                        )
+    
+    duplicates_ID = [merged_list[i].pair_id for i in duplicates_idx]
+
+    del merged_list
+    del duplicates_idx
     gc.collect()
-    return res
+    return duplicates_ID
         
 
 def _normalize_name(name: str) -> str:
@@ -242,8 +272,9 @@ def validate_kernel_run_inputs(
                     f"{split_path} ({record.pair_id})"
                 )
 
-    if not test(record_splits):
-        raise ValueError(f"Duplicate records are found.")
+    dupls = test(record_splits)
+    if not len(dupls)==0:
+        raise ValueError(f"Duplicate records are found: {dupls}")
 
     adapter_dir = resolve_project_path(config.adapter_path)
     if not adapter_dir.exists():
