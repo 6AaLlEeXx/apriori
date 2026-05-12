@@ -72,6 +72,8 @@ def _duplecates_in_list(L : list[Any], format : Any, include_first=True) -> list
             L : some given list
             format : function that takes an element from L and extracts it's
                      value that will be used for duplicate detection 
+            iclude_first : tells if the first encounter or a duplicated value
+                           should be added to the output
         Returns:
             list of duplicate's indices and values
     """
