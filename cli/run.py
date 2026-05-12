@@ -42,6 +42,10 @@ def _apply_subset_training_policy(
     config: LoraRunConfig,
     sampling_meta: dict[str, Any],
 ) -> tuple[LoraRunConfig, dict[str, Any] | None]:
+    """
+    Essentially it just rescales base_iters given for mlx-lora configuration
+    so that it to scale of subset / set when subset training is used
+    """
     policy = str(config.subset_training.get("iters_policy", "none")).strip().lower()
     if policy in {"", "none", "fixed"}:
         return config, None
@@ -62,6 +66,9 @@ def _apply_subset_training_policy(
         raise ValueError("`subset_training.min_iters` must be at least 1.")
     cap_at_full = bool(config.subset_training.get("cap_at_full_iters", True))
 
+    #scaled_iters normalize number of iterations w.r.t. the subset size
+    #so, for exampled, if |subset| = 1/2*|original| then devide the 
+    # basic mlx specified iters by 2
     scaled_iters = max(
         min_iters,
         ceil(base_iters * selected_examples / original_examples),

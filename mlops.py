@@ -255,6 +255,12 @@ def prepare_run(
     config: LoraRunConfig,
     run_name: str,
 ) -> RunPaths:
+    """
+        Prepares all the directories where the run outputs
+        are stored. 
+
+        Returns RunPaths config, provifing the run's data layout! 
+    """
     output_root = resolve_project_path(config.output_root)
     run_dir = output_root / "runs" / run_name
     if run_dir.exists():
@@ -277,7 +283,7 @@ def prepare_run(
         resolved_config_path=run_dir / "resolved_config.yaml",
         summary_path=run_dir / "summary.json",
         eval_path=run_dir / "eval.json",
-        command_path=run_dir / "command.txt",
+        command_path=run_dir / "command.txt", #this is the command passed to mlx to run teh lora FT
         mlx_config_path=run_dir / "mlx_config.yaml",
     )
 
