@@ -1,0 +1,11 @@
+extends: samsum_score_gradient.yaml
+feature_backend_args:
+  leaf_filter: lora_b_only
+  feature_transform: thresholded_sign
+  threshold: 0.1
+run_tags:
+  - mlx-lora
+  - kernel
+  - generated
+  - thresholded-sign
+notes: Generated-style score-gradient score-delta kernel config for SAMSum with thresholded-sign gradient features.

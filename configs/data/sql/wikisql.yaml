@@ -1,5 +1,5 @@
 dataset_name: wikisql
-source_dataset: Salesforce/wikisql
+upstream_dataset: Salesforce/wikisql
 output_dir: data/wikisql
 source:
   type: hf
@@ -11,7 +11,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   computed_fields:
     sql_query:

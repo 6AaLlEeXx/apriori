@@ -1,5 +1,5 @@
 dataset_name: trivia_qa
-source_dataset: mandarjoshi/trivia_qa
+upstream_dataset: mandarjoshi/trivia_qa
 output_dir: data/trivia_qa
 source:
   type: hf
@@ -13,7 +13,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   computed_fields:
     answer_text:

@@ -161,7 +161,7 @@ def _kernel_train_size(summary: dict[str, Any]) -> int | None:
         value = _number(split_sizes.get("train"))
         if value is not None:
             return int(value)
-    value = _number(summary.get("train_limit"))
+    value = _number(summary.get("krr_fit_examples"))
     return int(value) if value is not None else None
 
 
@@ -190,9 +190,9 @@ def _prediction_points(
 
 def _feature_label(feature: str) -> str:
     labels = {
-        "raw": "LoRA-NTK",
-        "sign": "Sign LoRA-NTK",
-        "thresholded_sign": "Thresholded-sign LoRA-NTK",
+        "raw": "Score gradient",
+        "sign": "Sign score gradient",
+        "thresholded_sign": "Thresholded-sign score gradient",
     }
     return labels.get(feature, feature.replace("_", " "))
 
@@ -1055,4 +1055,3 @@ def generate_kernel_paper_plots(
             "Multi-page PDF with prediction-vs-true panels, RMSE improvement, and absolute RMSE figures.",
         )
     ]
-

@@ -1,0 +1,7 @@
+extends: qwen3_14b_openmathreasoning_cot_60k_score_gradient.yaml
+dataset_name: openmathreasoning_cot_60k_unseen_kernel
+prepared_data_dir: data/openmathreasoning_cot_60k_unseen_kernel
+provenance_configs:
+  data: configs/data/math/openmathreasoning_cot_60k_unseen_kernel.yaml
+  training: configs/train/math/qwen3_14b_openmathreasoning_cot_60k_unseen_kernel_eval.yaml
+notes: Leak-free score-gradient score-delta KRR for Qwen3-14B OpenMathReasoning adapters on unseen prompts.

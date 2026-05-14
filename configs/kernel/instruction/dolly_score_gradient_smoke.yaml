@@ -1,0 +1,12 @@
+extends: dolly_score_gradient.yaml
+dataset_name: dolly_smoke
+prepared_data_dir: data/dolly_smoke
+krr_fit_examples: 4
+validation_examples: 2
+test_examples: 2
+krr:
+  method: nystrom
+  ridge_lambda: 1.0e-2
+  rank: 4
+  num_landmarks: 4
+notes: Tiny score-gradient smoke test for the kernel score-delta pipeline.

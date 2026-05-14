@@ -1,5 +1,5 @@
 dataset_name: emotion
-source_dataset: dair-ai/emotion
+upstream_dataset: dair-ai/emotion
 output_dir: data/emotion
 source:
   type: hf
@@ -12,7 +12,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   computed_fields:
     answer_text:

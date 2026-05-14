@@ -1,5 +1,5 @@
 dataset_name: opus100_en_de
-source_dataset: Helsinki-NLP/opus-100
+upstream_dataset: Helsinki-NLP/opus-100
 output_dir: data/opus100_en_de
 source:
   type: hf
@@ -13,7 +13,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   computed_fields:
     source_text:

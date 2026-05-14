@@ -1,5 +1,5 @@
 dataset_name: dialogsum
-source_dataset: knkarthick/dialogsum
+upstream_dataset: knkarthick/dialogsum
 output_dir: data/dialogsum
 source:
   type: hf
@@ -11,7 +11,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: |-
     Summarize the dialogue below concisely in the third person.

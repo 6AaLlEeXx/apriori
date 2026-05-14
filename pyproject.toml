@@ -22,7 +22,7 @@ dependencies = [
 [project.scripts]
 mlx-lora-run = "cli.run:main"
 mlx-lora-run-kernel = "cli.run_kernel:main"
-mlx-lora-make-kernel-paper-figures = "cli.make_kernel_paper_figures:main"
+mlx-lora-make-kernel-figures = "cli.make_kernel_figures:main"
 mlx-lora-prepare-data = "cli.prepare_data:main"
 mlx-lora-compare-adapters = "cli.compare_adapters:main"
 

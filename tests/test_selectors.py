@@ -19,17 +19,17 @@ _RANDOM_SELECTOR = importlib.util.module_from_spec(_RANDOM_SPEC)
 _RANDOM_SPEC.loader.exec_module(_RANDOM_SELECTOR)
 
 
-def test_random_selector_uses_seed_and_max_examples() -> None:
+def test_random_selector_uses_seed_and_subset_size() -> None:
     rows = [{"id": index} for index in range(10)]
 
     first = _RANDOM_SELECTOR.select_samples(
         rows,
-        max_example=4,
+        subset_size=4,
         context={"seed": 123},
     )
     second = _RANDOM_SELECTOR.select_samples(
         rows,
-        max_example=4,
+        subset_size=4,
         context={"seed": 123},
     )
 
@@ -51,7 +51,7 @@ def test_random_selector_returns_all_rows_when_limit_is_absent() -> None:
 def test_random_selector_returns_empty_for_non_positive_limit() -> None:
     rows = [{"id": index} for index in range(3)]
 
-    selected = _RANDOM_SELECTOR.select_samples(rows, max_example=0)
+    selected = _RANDOM_SELECTOR.select_samples(rows, subset_size=0)
 
     assert selected == []
 

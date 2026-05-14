@@ -1,5 +1,5 @@
 dataset_name: paws_x_de
-source_dataset: google-research-datasets/paws-x
+upstream_dataset: google-research-datasets/paws-x
 output_dir: data/paws_x_de
 source:
   type: hf
@@ -12,7 +12,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   computed_fields:
     answer_text:

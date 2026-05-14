@@ -1,5 +1,5 @@
 dataset_name: mathinstruct
-source_dataset: TIGER-Lab/MathInstruct
+upstream_dataset: TIGER-Lab/MathInstruct
 output_dir: data/mathinstruct
 source:
   type: hf
@@ -11,7 +11,7 @@ split:
   seed: 42
   valid_ratio: 0.02
   test_ratio: 0.02
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: |-
     Solve the following math problem. Show your reasoning.

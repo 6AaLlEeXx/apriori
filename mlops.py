@@ -43,12 +43,12 @@ class LoraRunConfig:
     dataset_name: str = "dolly"
     task: str = "generic"
     base_model: str = "mlx-community/SmolLM2-1.7B-Instruct"
-    data_dir: str = "data/dolly"
-    output_root: str = DEFAULT_RESULTS_ROOT
+    prepared_data_dir: str = "data/dolly"
+    results_root: str = DEFAULT_RESULTS_ROOT
     mlx_command: str = "mlx_lm.lora"
     test_after_train: bool = True
     run_tags: list[str] = field(default_factory=list)
-    mlx_args: dict[str, Any] = field(default_factory=dict)
+    mlx_lora_args: dict[str, Any] = field(default_factory=dict)
     subset_training: dict[str, Any] = field(default_factory=dict)
     extra_args: list[str] = field(default_factory=list)
     evaluation: dict[str, Any] = field(default_factory=dict)
@@ -197,7 +197,7 @@ def load_lora_run_config(path: str | Path) -> LoraRunConfig:
     merged.update(raw)
     merged["run_tags"] = [str(tag) for tag in merged.get("run_tags", [])]
     merged["extra_args"] = [str(arg) for arg in merged.get("extra_args", [])]
-    merged["mlx_args"] = dict(merged.get("mlx_args", {}))
+    merged["mlx_lora_args"] = dict(merged.get("mlx_lora_args", {}))
     merged["subset_training"] = dict(merged.get("subset_training", {}))
     merged["evaluation"] = dict(merged.get("evaluation", {}))
     return LoraRunConfig(**merged)
@@ -229,21 +229,21 @@ def build_run_name(config: LoraRunConfig, created_at: datetime | None = None) ->
     dataset_slug = _slugify(config.dataset_name)
     parts = [timestamp, model_slug, dataset_slug]
 
-    lora_parameters = config.mlx_args.get("lora_parameters", {})
+    lora_parameters = config.mlx_lora_args.get("lora_parameters", {})
     if isinstance(lora_parameters, dict) and "rank" in lora_parameters:
         rank = _coerce_int(lora_parameters["rank"])
         if rank is not None:
             parts.append(f"r{rank}")
 
-    num_layers = _coerce_int(config.mlx_args.get("num_layers"))
+    num_layers = _coerce_int(config.mlx_lora_args.get("num_layers"))
     if num_layers is not None:
         parts.append(f"l{num_layers}")
 
-    max_seq_length = _coerce_int(config.mlx_args.get("max_seq_length"))
+    max_seq_length = _coerce_int(config.mlx_lora_args.get("max_seq_length"))
     if max_seq_length is not None:
         parts.append(f"seq{max_seq_length}")
 
-    seed = _coerce_int(config.mlx_args.get("seed"))
+    seed = _coerce_int(config.mlx_lora_args.get("seed"))
     if seed is not None:
         parts.append(f"s{seed}")
 
@@ -254,12 +254,12 @@ def prepare_run(
     config: LoraRunConfig,
     run_name: str,
 ) -> RunPaths:
-    output_root = resolve_project_path(config.output_root)
-    run_dir = output_root / "runs" / run_name
+    results_root = resolve_project_path(config.results_root)
+    run_dir = results_root / "runs" / run_name
     if run_dir.exists():
         raise FileExistsError(f"Run directory already exists: {run_dir}")
 
-    adapter_dir = output_root / "adapters" / run_name
+    adapter_dir = results_root / "adapters" / run_name
     logs_dir = run_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=False)
     adapter_dir.mkdir(parents=True, exist_ok=False)
@@ -294,15 +294,15 @@ def build_run_metadata(
         "dataset_name": config.dataset_name,
         "task": config.task,
         "base_model": config.base_model,
-        "data_dir": str(resolve_project_path(config.data_dir)),
-        "output_root": config.output_root,
+        "prepared_data_dir": str(resolve_project_path(config.prepared_data_dir)),
+        "results_root": config.results_root,
         "adapter_dir": str(paths.adapter_dir),
         "mlx_config_path": str(paths.mlx_config_path),
         "mlx_command": config.mlx_command,
         "run_tags": list(config.run_tags),
         "evaluation": config.evaluation,
         "notes": config.notes,
-        "mlx_args": config.mlx_args,
+        "mlx_lora_args": config.mlx_lora_args,
         "subset_training": config.subset_training,
         "extra_args": config.extra_args,
     }
@@ -362,7 +362,7 @@ def normalize_lora_parameters(raw_parameters: Any) -> Any:
 
 def build_mlx_config_payload(config: LoraRunConfig) -> dict[str, Any]:
     reserved = {"model", "data", "adapter_path", "train", "test", "config"}
-    normalized_args = normalize_mlx_args(config.mlx_args)
+    normalized_args = normalize_mlx_args(config.mlx_lora_args)
     payload: dict[str, Any] = {}
 
     for key, value in normalized_args.items():
@@ -393,12 +393,12 @@ def write_mlx_runtime_config(path: str | Path, payload: dict[str, Any]) -> None:
 def build_train_command(
     config: LoraRunConfig,
     paths: RunPaths,
-    data_dir: str | Path | None = None,
+    prepared_data_dir: str | Path | None = None,
 ) -> list[str]:
     resolved_data_dir = (
-        resolve_project_path(data_dir)
-        if data_dir is not None
-        else resolve_project_path(config.data_dir)
+        resolve_project_path(prepared_data_dir)
+        if prepared_data_dir is not None
+        else resolve_project_path(config.prepared_data_dir)
     )
     command = [
         config.mlx_command,
@@ -411,7 +411,7 @@ def build_train_command(
         str(paths.adapter_dir),
     ]
 
-    normalized_args = normalize_mlx_args(config.mlx_args)
+    normalized_args = normalize_mlx_args(config.mlx_lora_args)
     config_payload = build_mlx_config_payload(config)
     if config_payload:
         command.extend(["-c", str(paths.mlx_config_path)])
@@ -435,12 +435,12 @@ def build_train_command(
 def build_test_command(
     config: LoraRunConfig,
     paths: RunPaths,
-    data_dir: str | Path | None = None,
+    prepared_data_dir: str | Path | None = None,
 ) -> list[str]:
     resolved_data_dir = (
-        resolve_project_path(data_dir)
-        if data_dir is not None
-        else resolve_project_path(config.data_dir)
+        resolve_project_path(prepared_data_dir)
+        if prepared_data_dir is not None
+        else resolve_project_path(config.prepared_data_dir)
     )
     return [
         config.mlx_command,
@@ -504,13 +504,13 @@ def _call_sample_selector(
     selector: Any,
     rows: list[dict[str, Any]],
     *,
-    max_example: int | None,
+    subset_size: int | None,
     context: dict[str, Any],
 ) -> Any:
     try:
         signature = inspect.signature(selector)
     except (TypeError, ValueError):
-        return selector(rows, max_example=max_example)
+        return selector(rows, subset_size=subset_size)
 
     parameters = signature.parameters.values()
     accepts_context = any(
@@ -519,8 +519,8 @@ def _call_sample_selector(
         for parameter in parameters
     )
     if accepts_context:
-        return selector(rows, max_example=max_example, context=context)
-    return selector(rows, max_example=max_example)
+        return selector(rows, subset_size=subset_size, context=context)
+    return selector(rows, subset_size=subset_size)
 
 
 def prepare_sampled_data_dir(
@@ -528,7 +528,7 @@ def prepare_sampled_data_dir(
     source_data_dir: str | Path,
     run_dir: str | Path,
     sample_selector: str | Path,
-    max_example: int | None = None,
+    subset_size: int | None = None,
     selector_context: dict[str, Any] | None = None,
 ) -> tuple[Path, dict[str, Any]]:
     source_data_dir = resolve_project_path(source_data_dir)
@@ -555,7 +555,7 @@ def prepare_sampled_data_dir(
     selected_rows = _call_sample_selector(
         selector,
         rows,
-        max_example=max_example,
+        subset_size=subset_size,
         context=context,
     )
     if selected_rows is None:
@@ -566,7 +566,7 @@ def prepare_sampled_data_dir(
     selector_path = resolve_existing_project_path(sample_selector)
     metadata = {
         "selector_path": str(selector_path),
-        "max_example": max_example,
+        "subset_size": subset_size,
         "original_train_examples": len(rows),
         "selected_train_examples": len(selected_rows),
         "sampled_data_dir": str(sampled_data_dir),
@@ -736,7 +736,10 @@ def build_summary(
         "dataset_name": config.dataset_name,
         "task": config.task,
         "base_model": config.base_model,
-        "data_dir": metadata.get("train_data_dir", config.data_dir),
+        "prepared_data_dir": metadata.get(
+            "train_prepared_data_dir",
+            config.prepared_data_dir,
+        ),
         "adapter_dir": str(paths.adapter_dir),
         "run_tags": list(config.run_tags),
         "evaluation": config.evaluation,

@@ -39,23 +39,23 @@ def _now_iso() -> str:
 
 def _default_output_dir(
     *,
-    output_root: str | Path,
+    results_root: str | Path,
     split: str,
 ) -> Path:
     timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
-    return resolve_project_path(output_root) / "comparisons" / f"{timestamp}__{split}"
+    return resolve_project_path(results_root) / "comparisons" / f"{timestamp}__{split}"
 
 
 def prepare_adapter_comparison_paths(
     output_dir: str | Path | None,
     *,
     split: str,
-    output_root: str | Path = DEFAULT_RESULTS_ROOT,
+    results_root: str | Path = DEFAULT_RESULTS_ROOT,
 ) -> AdapterComparisonPaths:
     resolved_output_dir = (
         resolve_project_path(output_dir)
         if output_dir is not None
-        else _default_output_dir(output_root=output_root, split=split)
+        else _default_output_dir(results_root=results_root, split=split)
     )
     resolved_output_dir.mkdir(parents=True, exist_ok=False)
     return AdapterComparisonPaths(
@@ -191,10 +191,10 @@ def _same_path(left: str | Path, right: str | Path) -> bool:
 def find_run_summary_for_adapter(
     adapter_path: str | Path,
     *,
-    output_root: str | Path = DEFAULT_RESULTS_ROOT,
+    results_root: str | Path = DEFAULT_RESULTS_ROOT,
 ) -> dict[str, Any] | None:
-    output_root = resolve_project_path(output_root)
-    for summary_path in sorted((output_root / "runs").glob("*/summary.json")):
+    results_root = resolve_project_path(results_root)
+    for summary_path in sorted((results_root / "runs").glob("*/summary.json")):
         summary = _load_json_if_valid(summary_path)
         if not summary:
             continue
@@ -219,7 +219,7 @@ def _selector_details(sampling: dict[str, Any] | None) -> dict[str, Any]:
 
     return {
         "selector": _basename(sampling.get("selector_path")) or "-",
-        "max_examples": sampling.get("max_example"),
+        "subset_size": sampling.get("subset_size"),
         "selected_train_examples": sampling.get("selected_train_examples"),
         "original_train_examples": sampling.get("original_train_examples"),
         "selector_total_seconds": timing.get("total_seconds"),
@@ -246,36 +246,38 @@ def infer_selection_method(
 def run_adapter_comparison(
     *,
     base_model: str,
-    data_dir: str | Path,
+    prepared_data_dir: str | Path,
     full_adapter_path: str | Path,
     subset_adapter_path: str | Path,
     dataset_name: str | None = None,
     task: str | None = None,
-    method: str | None = None,
+    subset_method_label: str | None = None,
     split: str = "test",
-    limit: int = 512,
+    example_limit: int = 512,
     seed: int = 42,
     output_dir: str | Path | None = None,
-    output_root: str | Path = DEFAULT_RESULTS_ROOT,
+    results_root: str | Path = DEFAULT_RESULTS_ROOT,
     scorer_factory: ScorerFactory = default_scorer_factory,
 ) -> tuple[AdapterComparisonPaths, dict[str, Any]]:
-    data_dir = resolve_project_path(data_dir)
+    prepared_data_dir = resolve_project_path(prepared_data_dir)
     full_adapter_path = resolve_project_path(full_adapter_path)
     subset_adapter_path = resolve_project_path(subset_adapter_path)
-    full_run = find_run_summary_for_adapter(full_adapter_path, output_root=output_root)
+    full_run = find_run_summary_for_adapter(full_adapter_path, results_root=results_root)
     subset_run = find_run_summary_for_adapter(
         subset_adapter_path,
-        output_root=output_root,
+        results_root=results_root,
     )
-    records = load_pair_split(data_dir / f"{split}.jsonl", split=split)
-    records = maybe_subset_pairs(records, limit=limit, seed=seed)
+    records = load_pair_split(prepared_data_dir / f"{split}.jsonl", split=split)
+    records = maybe_subset_pairs(records, limit=example_limit, seed=seed)
     if not records:
-        raise ValueError(f"No records selected for adapter comparison: {data_dir}")
+        raise ValueError(
+            f"No records selected for adapter comparison: {prepared_data_dir}"
+        )
 
     paths = prepare_adapter_comparison_paths(
         output_dir,
         split=split,
-        output_root=output_root,
+        results_root=results_root,
     )
 
     base_scorer = scorer_factory(base_model, None)
@@ -307,11 +309,11 @@ def run_adapter_comparison(
         or (subset_run or {}).get("dataset_name")
         or (full_run or {}).get("dataset_name"),
         "task": task or (subset_run or {}).get("task") or (full_run or {}).get("task"),
-        "data_dir": str(data_dir),
+        "prepared_data_dir": str(prepared_data_dir),
         "split": split,
-        "limit": limit,
+        "example_limit": example_limit,
         "seed": seed,
-        "method": method
+        "subset_method_label": subset_method_label
         or infer_selection_method((subset_run or {}).get("sampling")),
         "full_run_name": (full_run or {}).get("run_name"),
         "subset_run_name": (subset_run or {}).get("run_name"),

@@ -41,16 +41,20 @@ def _apply_subset_training_policy(
     config: LoraRunConfig,
     sampling_meta: dict[str, Any],
 ) -> tuple[LoraRunConfig, dict[str, Any] | None]:
-    policy = str(config.subset_training.get("iters_policy", "none")).strip().lower()
+    policy = (
+        str(config.subset_training.get("iteration_scaling_policy", "none"))
+        .strip()
+        .lower()
+    )
     if policy in {"", "none", "fixed"}:
         return config, None
     if policy not in SUBSET_ITERS_POLICIES:
         raise ValueError(
-            "`subset_training.iters_policy` must be one of "
+            "`subset_training.iteration_scaling_policy` must be one of "
             f"{sorted(SUBSET_ITERS_POLICIES | {'none', 'fixed'})}; got {policy!r}."
         )
 
-    base_iters = int(config.mlx_args.get("iters") or 0)
+    base_iters = int(config.mlx_lora_args.get("iters") or 0)
     original_examples = int(sampling_meta.get("original_train_examples") or 0)
     selected_examples = int(sampling_meta.get("selected_train_examples") or 0)
     if base_iters <= 0 or original_examples <= 0 or selected_examples <= 0:
@@ -68,10 +72,10 @@ def _apply_subset_training_policy(
     if cap_at_full:
         scaled_iters = min(base_iters, scaled_iters)
 
-    mlx_args = dict(config.mlx_args)
-    mlx_args["iters"] = scaled_iters
+    mlx_lora_args = dict(config.mlx_lora_args)
+    mlx_lora_args["iters"] = scaled_iters
     details = {
-        "iters_policy": policy,
+        "iteration_scaling_policy": policy,
         "base_iters": base_iters,
         "effective_iters": scaled_iters,
         "original_train_examples": original_examples,
@@ -79,7 +83,7 @@ def _apply_subset_training_policy(
         "min_iters": min_iters,
         "cap_at_full_iters": cap_at_full,
     }
-    return replace(config, mlx_args=mlx_args), details
+    return replace(config, mlx_lora_args=mlx_lora_args), details
 
 
 def parse_args() -> argparse.Namespace:
@@ -119,14 +123,14 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Optional path to a Python selector module defining "
-            "`select_samples(rows, max_example=None, context=None)`."
+            "`select_samples(rows, subset_size=None, context=None)`."
         ),
     )
     parser.add_argument(
-        "--max-examples",
+        "--subset-train-size",
         type=int,
         default=None,
-        help="Optional max-examples value passed to `select_samples`.",
+        help="Optional subset size passed to `select_samples`.",
     )
     parser.add_argument(
         "--selector-debug",
@@ -144,19 +148,19 @@ def main() -> None:
     run_name = args.run_name or build_run_name(config)
     paths = prepare_run(config, run_name)
 
-    train_data_dir = config.data_dir
+    train_prepared_data_dir = config.prepared_data_dir
     sampling_meta = None
     subset_training_meta = None
     if args.sample_selector:
-        train_data_dir, sampling_meta = prepare_sampled_data_dir(
-            source_data_dir=config.data_dir,
+        train_prepared_data_dir, sampling_meta = prepare_sampled_data_dir(
+            source_data_dir=config.prepared_data_dir,
             run_dir=paths.run_dir,
             sample_selector=args.sample_selector,
-            max_example=args.max_examples,
+            subset_size=args.subset_train_size,
             selector_context={
                 "base_model": config.base_model,
-                "mlx_args": config.mlx_args,
-                "seed": config.mlx_args.get("seed", 42),
+                "mlx_lora_args": config.mlx_lora_args,
+                "seed": config.mlx_lora_args.get("seed", 42),
                 "selector_debug": args.selector_debug,
             },
         )
@@ -184,14 +188,18 @@ def main() -> None:
         metadata["sampling"] = sampling_meta
     if subset_training_meta is not None:
         metadata["subset_training_effective"] = subset_training_meta
-    metadata["train_data_dir"] = str(train_data_dir)
+    metadata["train_prepared_data_dir"] = str(train_prepared_data_dir)
     write_metadata(paths.metadata_path, metadata)
     write_mlx_runtime_config(
         paths.mlx_config_path,
         build_mlx_config_payload(config),
     )
 
-    train_command = build_train_command(config, paths, data_dir=train_data_dir)
+    train_command = build_train_command(
+        config,
+        paths,
+        prepared_data_dir=train_prepared_data_dir,
+    )
     write_command(paths.command_path, train_command)
     write_summary(
         paths.summary_path,
@@ -233,7 +241,11 @@ def main() -> None:
     test_exit_code: int | None = None
 
     if train_exit_code == 0 and config.test_after_train and not args.skip_test:
-        test_command = build_test_command(config, paths, data_dir=train_data_dir)
+        test_command = build_test_command(
+            config,
+            paths,
+            prepared_data_dir=train_prepared_data_dir,
+        )
         test_exit_code = run_command_with_logging(
             command=test_command,
             log_path=paths.test_log,

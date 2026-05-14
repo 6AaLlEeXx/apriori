@@ -168,7 +168,7 @@ source:
   path: {source_path}
 split:
   strategy: train_valid
-mapping:
+prompt_completion_mapping:
   type: template
   computed_fields:
     x:
@@ -257,7 +257,7 @@ def test_prepare_dataset_from_config_uses_local_jsonl_source(tmp_path) -> None:
     config_path.write_text(
         f"""
 dataset_name: local_qa
-source_dataset: local-jsonl
+upstream_dataset: local-jsonl
 output_dir: {output_dir}
 source:
   type: jsonl
@@ -267,7 +267,7 @@ split:
   seed: 7
   valid_ratio: 0.2
   test_ratio: 0.2
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: "Question: {{question}}"
   completion_template: "{{answer}}"
@@ -282,7 +282,7 @@ mapping:
     assert (output_dir / "test.jsonl").exists()
     metadata = json.loads((output_dir / "metadata.json").read_text())
     assert metadata["dataset_name"] == "local_qa"
-    assert metadata["source_dataset"] == "local-jsonl"
+    assert metadata["upstream_dataset"] == "local-jsonl"
     assert metadata["extra"]["split"]["strategy"] == "ratios"
 
 
@@ -316,7 +316,7 @@ source:
     test: {test_path}
 split:
   strategy: existing
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: "{{prompt}}"
   completion_template: "{{completion}}"
@@ -378,7 +378,7 @@ source:
         max_examples: 1
 split:
   strategy: existing
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: "{{prompt}}"
   completion_template: "{{completion}}"
@@ -426,7 +426,7 @@ source:
     test: {test_path}
 split:
   strategy: existing
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: "{{prompt}}"
   completion_template: "{{completion}}"
@@ -464,7 +464,7 @@ source:
   path: {source_path}
 split:
   strategy: train_valid
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: "{{prompt}}"
   completion_template: "{{completion}}"
@@ -500,7 +500,7 @@ source:
   path: {source_path}
 split:
   strategy: train_valid
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: "{{prompt}}"
   completion_template: "{{completion}}"
@@ -544,7 +544,7 @@ source:
     test: {test_path}
 split:
   strategy: existing
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: "{{missing}}"
   completion_template: "{{completion}}"
@@ -569,7 +569,7 @@ split:
   strategy: train_valid
   splits:
     train: train
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: "{{prompt}}"
   completion_template: "{{completion}}"
@@ -580,25 +580,25 @@ mapping:
         prepare_dataset_from_config(config_path)
 
 
-def test_validation_rejects_unknown_mapping_type(tmp_path) -> None:
+def test_validation_rejects_unknown_prompt_completion_mapping_type(tmp_path) -> None:
     source_path = tmp_path / "records.jsonl"
     _write_jsonl(source_path, [{"prompt": "p", "completion": "c"}])
     config_path = tmp_path / "data.yaml"
     config_path.write_text(
         f"""
-dataset_name: bad_mapping
+dataset_name: bad_prompt_completion_mapping
 source:
   type: jsonl
   path: {source_path}
 split:
   strategy: train_valid
-mapping:
+prompt_completion_mapping:
   type: registered
   completion_template: "{{completion}}"
 """
     )
 
-    with pytest.raises(ValueError, match="Only `mapping.type: template`"):
+    with pytest.raises(ValueError, match="Only `prompt_completion_mapping.type: template`"):
         prepare_dataset_from_config(config_path)
 
 

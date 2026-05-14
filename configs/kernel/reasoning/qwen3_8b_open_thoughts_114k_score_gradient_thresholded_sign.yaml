@@ -1,0 +1,12 @@
+extends: qwen3_8b_open_thoughts_114k_score_gradient.yaml
+feature_backend_args:
+  leaf_filter: lora_b_only
+  feature_transform: thresholded_sign
+  threshold: 0.1
+run_tags:
+  - mlx-lora
+  - kernel
+  - qwen3-8b
+  - open-thoughts
+  - thresholded-sign
+notes: score-gradient score-delta KRR for Qwen3-8B OpenThoughts with thresholded-sign gradient features.

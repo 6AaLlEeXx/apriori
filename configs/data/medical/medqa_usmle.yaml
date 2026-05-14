@@ -1,5 +1,5 @@
 dataset_name: medqa_usmle
-source_dataset: GBaker/MedQA-USMLE-4-options
+upstream_dataset: GBaker/MedQA-USMLE-4-options
 output_dir: data/medqa_usmle
 source:
   type: hf
@@ -11,7 +11,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   computed_fields:
     options_block:

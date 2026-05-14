@@ -1,5 +1,5 @@
 dataset_name: sciq
-source_dataset: allenai/sciq
+upstream_dataset: allenai/sciq
 output_dir: data/sciq
 source:
   type: hf
@@ -11,7 +11,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_parts:
     - Answer the science question using the supporting text if helpful.

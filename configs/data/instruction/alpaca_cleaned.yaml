@@ -1,5 +1,5 @@
 dataset_name: alpaca_cleaned
-source_dataset: yahma/alpaca-cleaned
+upstream_dataset: yahma/alpaca-cleaned
 output_dir: data/alpaca_cleaned
 source:
   type: hf
@@ -10,7 +10,7 @@ split:
   seed: 42
   valid_ratio: 0.05
   test_ratio: 0.05
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_parts:
     - Write a helpful response to the following instruction.

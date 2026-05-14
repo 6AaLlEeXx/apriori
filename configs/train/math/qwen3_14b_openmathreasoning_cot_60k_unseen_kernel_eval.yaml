@@ -1,4 +1,4 @@
 extends: qwen3_14b_openmathreasoning_cot_60k.yaml
 dataset_name: openmathreasoning_cot_60k_unseen_kernel
-data_dir: data/openmathreasoning_cot_60k_unseen_kernel
+prepared_data_dir: data/openmathreasoning_cot_60k_unseen_kernel
 notes: Evaluation-only config for reusing Qwen3-14B OpenMathReasoning adapters on the leak-free unseen kernel pool.

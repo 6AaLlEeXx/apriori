@@ -1,5 +1,5 @@
 dataset_name: evol_instruct_code
-source_dataset: nickrosh/Evol-Instruct-Code-80k-v1
+upstream_dataset: nickrosh/Evol-Instruct-Code-80k-v1
 output_dir: data/evol_instruct_code
 source:
   type: hf
@@ -14,7 +14,7 @@ split:
     train: 0.9
     valid: 0.05
     test: 0.05
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: |-
     {instruction}

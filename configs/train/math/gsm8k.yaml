@@ -1,7 +1,7 @@
 extends: ../base/base.yaml
 dataset_name: gsm8k
 task: gsm8k
-data_dir: data/gsm8k
+prepared_data_dir: data/gsm8k
 run_tags:
   - mlx-lora
   - lora
@@ -13,7 +13,7 @@ evaluation:
     - token_f1
     - gsm8k_answer_accuracy
   primary_metric: gsm8k_answer_accuracy
-mlx_args:
+mlx_lora_args:
   iters: 900
   num_layers: 12
   max_seq_length: 640

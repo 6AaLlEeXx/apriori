@@ -1,5 +1,5 @@
 dataset_name: cnn_dailymail
-source_dataset: abisee/cnn_dailymail
+upstream_dataset: abisee/cnn_dailymail
 output_dir: data/cnn_dailymail
 source:
   type: hf
@@ -13,7 +13,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: |-
     Summarize the news article in 3-4 bullet-style highlight sentences.

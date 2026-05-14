@@ -1,7 +1,7 @@
 extends: ../base/base.yaml
 dataset_name: sql-create-context
 task: sql
-data_dir: data/sql_create_context
+prepared_data_dir: data/sql_create_context
 run_tags:
   - mlx-lora
   - lora
@@ -13,7 +13,7 @@ evaluation:
     - token_f1
     - sql_exact_match
   primary_metric: sql_exact_match
-mlx_args:
+mlx_lora_args:
   batch_size: 1
   gradient_accumulation_steps: 8
   iters: 1400

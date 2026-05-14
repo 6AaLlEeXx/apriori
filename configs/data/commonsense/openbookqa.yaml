@@ -1,5 +1,5 @@
 dataset_name: openbookqa
-source_dataset: allenai/openbookqa
+upstream_dataset: allenai/openbookqa
 output_dir: data/openbookqa
 source:
   type: hf
@@ -12,7 +12,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   computed_fields:
     options_block:

@@ -21,8 +21,8 @@ def test_load_kernel_run_config_supports_extends(tmp_path: Path) -> None:
             [
                 "dataset_name: dolly",
                 "adapter_path: results/adapters/example",
-                "backend: lora_ntk",
-                "kernel:",
+                "feature_backend: score_gradient",
+                "krr:",
                 "  method: nystrom",
                 "  ridge_lambda: 0.01",
                 "  rank: 16",
@@ -34,9 +34,9 @@ def test_load_kernel_run_config_supports_extends(tmp_path: Path) -> None:
         "\n".join(
             [
                 "extends: base.yaml",
-                "backend: lora_ntk",
-                "train_limit: 64",
-                "backend_args:",
+                "feature_backend: score_gradient",
+                "krr_fit_examples: 64",
+                "feature_backend_args:",
                 "  leaf_filter: lora_b_only",
             ]
         )
@@ -44,10 +44,10 @@ def test_load_kernel_run_config_supports_extends(tmp_path: Path) -> None:
 
     config = load_kernel_run_config(child)
     assert config.dataset_name == "dolly"
-    assert config.backend == "lora_ntk"
-    assert config.train_limit == 64
-    assert config.kernel.rank == 16
-    assert config.backend_args["leaf_filter"] == "lora_b_only"
+    assert config.feature_backend == "score_gradient"
+    assert config.krr_fit_examples == 64
+    assert config.krr.rank == 16
+    assert config.feature_backend_args["leaf_filter"] == "lora_b_only"
 
 
 def test_load_kernel_run_config_rejects_unsupported_backend(tmp_path: Path) -> None:
@@ -56,22 +56,22 @@ def test_load_kernel_run_config_rejects_unsupported_backend(tmp_path: Path) -> N
         "\n".join(
             [
                 "dataset_name: dolly",
-                "backend: unsupported_backend",
+                "feature_backend: unsupported_backend",
             ]
         )
     )
 
-    with pytest.raises(ValueError, match="Unsupported kernel backend"):
+    with pytest.raises(ValueError, match="Unsupported feature backend"):
         load_kernel_run_config(config_path)
 
 
 def test_build_kernel_run_name_includes_backend_and_limits() -> None:
-    config = load_kernel_run_config("configs/kernel/instruction/dolly_lora_ntk.yaml")
+    config = load_kernel_run_config("configs/kernel/instruction/dolly_score_gradient.yaml")
     run_name = build_kernel_run_name(config)
     assert "dolly" in run_name
     assert "smollm2-1-7b-instruct" in run_name
-    assert "lora-ntk" in run_name
-    assert "n64" in run_name
+    assert "score-gradient" in run_name
+    assert "fit64" in run_name
 
 
 def test_resolve_adapter_path_matches_dataset_aliases(tmp_path: Path) -> None:
@@ -99,5 +99,5 @@ def test_resolve_adapter_path_matches_dataset_aliases(tmp_path: Path) -> None:
         adapter_path="",
     )
 
-    resolved = resolve_adapter_path(config, output_root=tmp_path)
+    resolved = resolve_adapter_path(config, results_root=tmp_path)
     assert resolved == str(adapter_dir)

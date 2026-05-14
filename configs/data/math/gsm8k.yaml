@@ -1,5 +1,5 @@
 dataset_name: gsm8k
-source_dataset: openai/gsm8k
+upstream_dataset: openai/gsm8k
 output_dir: data/gsm8k
 source:
   type: hf
@@ -12,7 +12,7 @@ split:
   strategy: train_valid_existing_test
   seed: 42
   valid_ratio: 0.1
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: |-
     Solve the following grade-school math problem. Show your reasoning and end with `#### <answer>`.

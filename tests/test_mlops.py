@@ -28,8 +28,8 @@ def test_load_lora_run_config_supports_extends(tmp_path: Path) -> None:
                 "dataset_name: dolly",
                 "task: generic",
                 "base_model: mlx-community/SmolLM2-1.7B-Instruct",
-                "data_dir: data/dolly",
-                "mlx_args:",
+                "prepared_data_dir: data/dolly",
+                "mlx_lora_args:",
                 "  batch_size: 2",
                 "  num_layers: 8",
             ]
@@ -41,7 +41,7 @@ def test_load_lora_run_config_supports_extends(tmp_path: Path) -> None:
                 "extends: base.yaml",
                 "dataset_name: gsm8k",
                 "task: gsm8k",
-                "mlx_args:",
+                "mlx_lora_args:",
                 "  num_layers: 12",
             ]
         )
@@ -50,15 +50,15 @@ def test_load_lora_run_config_supports_extends(tmp_path: Path) -> None:
     config = load_lora_run_config(child)
     assert config.dataset_name == "gsm8k"
     assert config.task == "gsm8k"
-    assert config.mlx_args["batch_size"] == 2
-    assert config.mlx_args["num_layers"] == 12
+    assert config.mlx_lora_args["batch_size"] == 2
+    assert config.mlx_lora_args["num_layers"] == 12
 
 
 def test_build_run_name_includes_key_knobs() -> None:
     config = LoraRunConfig(
         dataset_name="gsm8k",
         base_model="mlx-community/SmolLM2-1.7B-Instruct",
-        mlx_args={
+        mlx_lora_args={
             "num_layers": 12,
             "max_seq_length": 640,
             "seed": 42,
@@ -74,11 +74,11 @@ def test_build_run_name_includes_key_knobs() -> None:
     assert run_name.endswith("__s42")
 
 
-def test_build_train_command_maps_mlx_args_to_cli_flags() -> None:
+def test_build_train_command_maps_mlx_lora_args_to_cli_flags() -> None:
     config = LoraRunConfig(
         dataset_name="dolly",
-        data_dir="data/dolly",
-        mlx_args={
+        prepared_data_dir="data/dolly",
+        mlx_lora_args={
             "batch_size": 2,
             "gradient_accumulation_steps": 4,
             "mask_prompt": True,
@@ -115,8 +115,8 @@ def test_build_train_command_maps_mlx_args_to_cli_flags() -> None:
     assert "alpha" not in payload["lora_parameters"]
 
 
-def test_build_train_and_test_command_support_data_dir_override() -> None:
-    config = LoraRunConfig(dataset_name="dolly", data_dir="data/dolly")
+def test_build_train_and_test_command_support_prepared_data_dir_override() -> None:
+    config = LoraRunConfig(dataset_name="dolly", prepared_data_dir="data/dolly")
     paths = RunPaths(
         run_name="run-1",
         run_dir=Path("results/runs/run-1"),
@@ -132,8 +132,8 @@ def test_build_train_and_test_command_support_data_dir_override() -> None:
         mlx_config_path=Path("results/runs/run-1/mlx_config.yaml"),
     )
 
-    train_command = build_train_command(config, paths, data_dir="data/dolly_subset")
-    test_command = build_test_command(config, paths, data_dir="data/dolly_subset")
+    train_command = build_train_command(config, paths, prepared_data_dir="data/dolly_subset")
+    test_command = build_test_command(config, paths, prepared_data_dir="data/dolly_subset")
     assert str(Path("data/dolly_subset").resolve()) in train_command
     assert str(Path("data/dolly_subset").resolve()) in test_command
 
@@ -155,11 +155,11 @@ def test_prepare_sampled_data_dir_applies_selector(tmp_path: Path) -> None:
     selector_path.write_text(
         "\n".join(
             [
-                "def select_samples(rows, max_example=None):",
+                "def select_samples(rows, subset_size=None):",
                 "    selected = [row for row in rows if row['id'] % 2 == 0]",
-                "    if max_example is None:",
+                "    if subset_size is None:",
                 "        return selected",
-                "    return selected[:max_example]",
+                "    return selected[:subset_size]",
             ]
         )
         + "\n"
@@ -169,7 +169,7 @@ def test_prepare_sampled_data_dir_applies_selector(tmp_path: Path) -> None:
         source_data_dir=source_dir,
         run_dir=tmp_path / "run",
         sample_selector=selector_path,
-        max_example=2,
+        subset_size=2,
     )
 
     sampled_rows = [
@@ -180,7 +180,7 @@ def test_prepare_sampled_data_dir_applies_selector(tmp_path: Path) -> None:
     assert sampled_dir.joinpath("test.jsonl").exists()
     assert metadata["original_train_examples"] == 6
     assert metadata["selected_train_examples"] == 2
-    assert metadata["max_example"] == 2
+    assert metadata["subset_size"] == 2
 
 
 def test_prepare_sampled_data_dir_default_selector_returns_all(tmp_path: Path) -> None:
@@ -195,7 +195,7 @@ def test_prepare_sampled_data_dir_default_selector_returns_all(tmp_path: Path) -
         source_data_dir=source_dir,
         run_dir=tmp_path / "run",
         sample_selector="selectors/identity.py",
-        max_example=1,
+        subset_size=1,
     )
     sampled_rows = [
         json.loads(line) for line in sampled_dir.joinpath("train.jsonl").read_text().splitlines()
@@ -215,7 +215,7 @@ def test_prepare_sampled_data_dir_passes_selector_context(tmp_path: Path) -> Non
     selector_path.write_text(
         "\n".join(
             [
-                "def select_samples(rows, max_example=None, context=None):",
+                "def select_samples(rows, subset_size=None, context=None):",
                 "    assert context['purpose'] == 'test'",
                 "    return rows[:context['limit']]",
             ]
@@ -237,7 +237,7 @@ def test_prepare_sampled_data_dir_passes_selector_context(tmp_path: Path) -> Non
     assert metadata["selector_context"]["purpose"] == "test"
 
 
-def test_run_cli_dry_run_applies_selector_max_examples(
+def test_run_cli_dry_run_applies_selector_subset_size(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -257,8 +257,8 @@ def test_run_cli_dry_run_applies_selector_max_examples(
     selector_path.write_text(
         "\n".join(
             [
-                "def select_samples(rows, max_example=None):",
-                "    return rows[:max_example]",
+                "def select_samples(rows, subset_size=None):",
+                "    return rows[:subset_size]",
             ]
         )
         + "\n"
@@ -269,8 +269,8 @@ def test_run_cli_dry_run_applies_selector_max_examples(
             [
                 "dataset_name: toy",
                 "task: generic",
-                f"data_dir: {source_dir}",
-                f"output_root: {tmp_path / 'results'}",
+                f"prepared_data_dir: {source_dir}",
+                f"results_root: {tmp_path / 'results'}",
             ]
         )
         + "\n"
@@ -287,7 +287,7 @@ def test_run_cli_dry_run_applies_selector_max_examples(
             "selector-dry-run",
             "--sample-selector",
             str(selector_path),
-            "--max-examples",
+            "--subset-train-size",
             "2",
             "--dry-run",
         ],
@@ -303,10 +303,10 @@ def test_run_cli_dry_run_applies_selector_max_examples(
     metadata = json.loads(run_dir.joinpath("metadata.json").read_text())
     summary = json.loads(run_dir.joinpath("summary.json").read_text())
     assert [row["id"] for row in sampled_rows] == [0, 1]
-    assert metadata["sampling"]["max_example"] == 2
+    assert metadata["sampling"]["subset_size"] == 2
     assert metadata["sampling"]["selected_train_examples"] == 2
     assert metadata["sampling"]["selector_context"]["seed"] == 42
-    assert summary["data_dir"] == metadata["train_data_dir"]
+    assert summary["prepared_data_dir"] == metadata["train_prepared_data_dir"]
     assert summary["sampling"] == metadata["sampling"]
 
 
@@ -330,8 +330,8 @@ def test_run_cli_dry_run_scales_subset_iters_to_match_full_exposure(
     selector_path.write_text(
         "\n".join(
             [
-                "def select_samples(rows, max_example=None):",
-                "    return rows[:max_example]",
+                "def select_samples(rows, subset_size=None):",
+                "    return rows[:subset_size]",
             ]
         )
         + "\n"
@@ -342,12 +342,12 @@ def test_run_cli_dry_run_scales_subset_iters_to_match_full_exposure(
             [
                 "dataset_name: toy",
                 "task: generic",
-                f"data_dir: {source_dir}",
-                f"output_root: {tmp_path / 'results'}",
-                "mlx_args:",
+                f"prepared_data_dir: {source_dir}",
+                f"results_root: {tmp_path / 'results'}",
+                "mlx_lora_args:",
                 "  iters: 50",
                 "subset_training:",
-                "  iters_policy: match_full_exposure",
+                "  iteration_scaling_policy: match_full_exposure",
             ]
         )
         + "\n"
@@ -364,7 +364,7 @@ def test_run_cli_dry_run_scales_subset_iters_to_match_full_exposure(
             "scaled-subset-dry-run",
             "--sample-selector",
             str(selector_path),
-            "--max-examples",
+            "--subset-train-size",
             "10",
             "--dry-run",
         ],
@@ -376,9 +376,9 @@ def test_run_cli_dry_run_scales_subset_iters_to_match_full_exposure(
     metadata = json.loads(run_dir.joinpath("metadata.json").read_text())
     command = run_dir.joinpath("command.txt").read_text()
     assert "--iters 5" in command
-    assert metadata["mlx_args"]["iters"] == 5
+    assert metadata["mlx_lora_args"]["iters"] == 5
     assert metadata["subset_training_effective"] == {
-        "iters_policy": "match_full_exposure",
+        "iteration_scaling_policy": "match_full_exposure",
         "base_iters": 50,
         "effective_iters": 5,
         "original_train_examples": 100,

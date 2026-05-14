@@ -1,5 +1,5 @@
 dataset_name: piqa
-source_dataset: ybisk/piqa
+upstream_dataset: ybisk/piqa
 output_dir: data/piqa
 source:
   type: hf
@@ -11,7 +11,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   computed_fields:
     answer_letter:

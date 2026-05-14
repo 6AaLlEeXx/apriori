@@ -22,7 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         required=True,
-        help="Path to the LoRA training config that defines data_dir/base_model.",
+        help="Path to the LoRA training config that defines prepared_data_dir/base_model.",
     )
     parser.add_argument(
         "--full-adapter",
@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
         help="Prepared data split to score. Defaults to test.",
     )
     parser.add_argument(
-        "--limit",
+        "--example-limit",
         type=int,
         default=512,
         help="Maximum examples to score from the selected split. Use 0 for all.",
@@ -63,9 +63,9 @@ def parse_args() -> argparse.Namespace:
         help="Optional output directory. Defaults to results/comparisons/<run>.",
     )
     parser.add_argument(
-        "--method",
+        "--subset-method-label",
         default=None,
-        help="Optional method label for reporting.",
+        help="Optional subset selection method label for reporting.",
     )
     return parser.parse_args()
 
@@ -78,17 +78,17 @@ def main() -> None:
 
     paths, summary = run_adapter_comparison(
         base_model=config.base_model,
-        data_dir=config.data_dir,
+        prepared_data_dir=config.prepared_data_dir,
         full_adapter_path=args.full_adapter,
         subset_adapter_path=args.subset_adapter,
         dataset_name=config.dataset_name,
         task=config.task,
-        method=args.method,
+        subset_method_label=args.subset_method_label,
         split=args.split,
-        limit=args.limit,
+        example_limit=args.example_limit,
         seed=args.seed,
         output_dir=args.output_dir,
-        output_root=config.output_root,
+        results_root=config.results_root,
     )
     print(f"Comparison directory: {paths.output_dir}")
     print(f"Scores: {paths.scores_path}")

@@ -1,7 +1,7 @@
 extends: ../base/base.yaml
 dataset_name: conala
 task: conala
-data_dir: data/conala
+prepared_data_dir: data/conala
 run_tags:
   - mlx-lora
   - lora
@@ -13,7 +13,7 @@ evaluation:
     - token_f1
     - conala_exact_match
   primary_metric: conala_exact_match
-mlx_args:
+mlx_lora_args:
   iters: 600
   num_layers: 8
   max_seq_length: 512

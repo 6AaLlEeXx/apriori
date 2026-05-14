@@ -1,5 +1,5 @@
 dataset_name: pubmed_summ
-source_dataset: ccdv/pubmed-summarization
+upstream_dataset: ccdv/pubmed-summarization
 output_dir: data/pubmed_summ
 source:
   type: hf
@@ -13,7 +13,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: |-
     Write a concise abstract for the following biomedical article body.

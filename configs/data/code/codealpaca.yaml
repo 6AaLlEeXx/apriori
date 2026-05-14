@@ -1,5 +1,5 @@
 dataset_name: codealpaca
-source_dataset: sahil2801/CodeAlpaca-20k
+upstream_dataset: sahil2801/CodeAlpaca-20k
 output_dir: data/codealpaca
 source:
   type: hf
@@ -13,7 +13,7 @@ split:
     train: 0.9
     valid: 0.05
     test: 0.05
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_parts:
     - |-

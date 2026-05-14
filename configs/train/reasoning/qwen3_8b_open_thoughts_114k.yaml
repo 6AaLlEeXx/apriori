@@ -2,7 +2,7 @@ extends: ../base/base.yaml
 dataset_name: open_thoughts_114k
 task: reasoning
 base_model: mlx-community/Qwen3-8B-4bit
-data_dir: data/open_thoughts_114k
+prepared_data_dir: data/open_thoughts_114k
 run_tags:
   - mlx-lora
   - lora
@@ -15,7 +15,7 @@ evaluation:
     - exact_match
     - token_f1
   primary_metric: token_f1
-mlx_args:
+mlx_lora_args:
   batch_size: 1
   gradient_accumulation_steps: 8
   learning_rate: 5.0e-6
@@ -34,6 +34,6 @@ mlx_args:
     scale: 20.0
     dropout: 0.0
 subset_training:
-  iters_policy: match_full_exposure
+  iteration_scaling_policy: match_full_exposure
   min_iters: 1
 notes: Qwen3-8B 4-bit reasoning LoRA on OpenThoughts-114k. Conservative for a 24 GB Apple Silicon machine.

@@ -1,5 +1,5 @@
 dataset_name: openmathreasoning_cot_60k_unseen_kernel
-source_dataset: nvidia/OpenMathReasoning
+upstream_dataset: nvidia/OpenMathReasoning
 output_dir: data/openmathreasoning_cot_60k_unseen_kernel
 source:
   type: hf
@@ -14,7 +14,7 @@ split:
     train: 8192
     valid: 2048
     test: 32768
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: |-
     Solve the following math problem step by step. Keep the final answer clearly marked.

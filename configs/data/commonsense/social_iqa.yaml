@@ -1,5 +1,5 @@
 dataset_name: social_iqa
-source_dataset: allenai/social_i_qa
+upstream_dataset: allenai/social_i_qa
 output_dir: data/social_iqa
 source:
   type: hf
@@ -10,7 +10,7 @@ split:
   seed: 42
   valid_ratio: 0.05
   test_ratio: 0.05
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: |-
     Answer the social reasoning question. Reply with only 1, 2, or 3.

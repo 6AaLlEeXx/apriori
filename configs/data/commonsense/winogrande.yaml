@@ -1,5 +1,5 @@
 dataset_name: winogrande
-source_dataset: allenai/winogrande
+upstream_dataset: allenai/winogrande
 output_dir: data/winogrande
 source:
   type: hf
@@ -12,7 +12,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: |-
     Which option best fills the blank (marked with _)? Reply with only 1 or 2.

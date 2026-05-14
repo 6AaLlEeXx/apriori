@@ -76,9 +76,9 @@ def test_summarize_adapter_comparison_measures_delta_agreement() -> None:
 
 
 def test_run_adapter_comparison_writes_scores_and_summary(tmp_path: Path) -> None:
-    data_dir = tmp_path / "data"
+    prepared_data_dir = tmp_path / "data"
     _write_jsonl(
-        data_dir / "test.jsonl",
+        prepared_data_dir / "test.jsonl",
         [
             {"prompt": "p0", "completion": "c0"},
             {"prompt": "p1", "completion": "c1"},
@@ -112,7 +112,7 @@ def test_run_adapter_comparison_writes_scores_and_summary(tmp_path: Path) -> Non
                 "adapter_dir": str(subset_adapter),
                 "sampling": {
                     "selector_path": "selectors/random.py",
-                    "max_example": 2,
+                    "subset_size": 2,
                     "selected_train_examples": 2,
                     "selector_context": {"seed": 42},
                 },
@@ -132,13 +132,13 @@ def test_run_adapter_comparison_writes_scores_and_summary(tmp_path: Path) -> Non
     output_dir = tmp_path / "comparison"
     paths, summary = run_adapter_comparison(
         base_model="models/base",
-        data_dir=data_dir,
+        prepared_data_dir=prepared_data_dir,
         full_adapter_path=full_adapter,
         subset_adapter_path=subset_adapter,
         split="test",
-        limit=0,
+        example_limit=0,
         output_dir=output_dir,
-        output_root=run_root,
+        results_root=run_root,
         scorer_factory=scorer_factory,
     )
 
@@ -153,7 +153,7 @@ def test_run_adapter_comparison_writes_scores_and_summary(tmp_path: Path) -> Non
     assert score_rows[0]["subset_score_delta"] == 0.9
     assert summary["metrics"]["delta"]["sign_accuracy"] == 1.0
     assert summary["dataset_name"] == "toy"
-    assert summary["method"] == "random"
+    assert summary["subset_method_label"] == "random"
     assert summary["selector_details"]["selector"] == "random.py"
     assert saved_summary["num_examples"] == 2
 

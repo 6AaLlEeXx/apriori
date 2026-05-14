@@ -9,7 +9,7 @@ from reporting.plots import generate_kernel_paper_plots, generate_kernel_plots
 def test_kernel_paper_plots_auto_select_observed_sizes_and_features(
     tmp_path: Path,
 ) -> None:
-    run_dir = tmp_path / "kernel" / "toy-random-512-kernel-n16"
+    run_dir = tmp_path / "kernel" / "toy-random-subset512-kernel-fit16"
     predictions_path = run_dir / "predictions" / "test.jsonl"
     predictions_path.parent.mkdir(parents=True)
     predictions_path.write_text(
@@ -32,9 +32,9 @@ def test_kernel_paper_plots_auto_select_observed_sizes_and_features(
                 [
                     {
                         "status": "completed",
-                        "run_name": "toy-random-512-kernel-n16",
+                        "run_name": "toy-random-subset512-kernel-fit16",
                         "run_dir": str(run_dir),
-                        "adapter_path": "results/adapters/toy-random-512",
+                        "adapter_path": "results/adapters/toy-random-subset512",
                         "split_sizes": {"train": 16},
                         "feature_transform_label": "raw",
                         "test_delta_rmse_gain": 0.02,
@@ -45,7 +45,7 @@ def test_kernel_paper_plots_auto_select_observed_sizes_and_features(
             )
         ],
         tmp_path / "paper",
-        adapter_contains="random-512",
+        adapter_contains="random-subset512",
         individual=True,
     )
 
@@ -64,9 +64,9 @@ def test_kernel_paper_plots_auto_select_observed_sizes_and_features(
                 [
                     {
                         "status": "completed",
-                        "run_name": "toy-random-512-kernel-n16",
+                        "run_name": "toy-random-subset512-kernel-fit16",
                         "run_dir": str(run_dir),
-                        "adapter_path": "results/adapters/toy-random-512",
+                        "adapter_path": "results/adapters/toy-random-subset512",
                         "split_sizes": {"train": 16},
                         "feature_transform_label": "raw",
                         "test_delta_rmse_gain": 0.02,
@@ -77,7 +77,7 @@ def test_kernel_paper_plots_auto_select_observed_sizes_and_features(
             )
         ],
         tmp_path / "combined",
-        adapter_contains="random-512",
+        adapter_contains="random-subset512",
     )
 
     assert [artifact.path.name for artifact in combined_artifacts] == [
@@ -94,9 +94,9 @@ def test_kernel_paper_plots_auto_select_observed_sizes_and_features(
                 [
                     {
                         "status": "completed",
-                        "run_name": "toy-random-512-kernel-n16",
+                        "run_name": "toy-random-subset512-kernel-fit16",
                         "run_dir": str(run_dir),
-                        "adapter_path": "results/adapters/toy-random-512",
+                        "adapter_path": "results/adapters/toy-random-subset512",
                         "split_sizes": {"train": 16},
                         "feature_transform_label": "raw",
                         "test_delta_rmse_gain": 0.02,
@@ -107,7 +107,7 @@ def test_kernel_paper_plots_auto_select_observed_sizes_and_features(
             )
         ],
         tmp_path / "standard",
-        adapter_contains="random-512",
+        adapter_contains="random-subset512",
         individual=True,
         plot_style="standard",
     )

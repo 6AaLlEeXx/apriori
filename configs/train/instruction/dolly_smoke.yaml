@@ -1,13 +1,13 @@
 extends: dolly.yaml
 dataset_name: dolly_smoke
-data_dir: data/dolly_smoke
+prepared_data_dir: data/dolly_smoke
 test_after_train: false
 run_tags:
   - mlx-lora
   - lora
   - dolly
   - smoke
-mlx_args:
+mlx_lora_args:
   iters: 10
   num_layers: 2
   max_seq_length: 256

@@ -1,5 +1,5 @@
 dataset_name: logiqa
-source_dataset: lucasmccabe/logiqa
+upstream_dataset: lucasmccabe/logiqa
 output_dir: data/logiqa
 source:
   type: hf
@@ -11,7 +11,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   computed_fields:
     options_block:

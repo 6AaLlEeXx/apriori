@@ -22,18 +22,20 @@ from kernel.config import KernelRunConfig
 
 
 def create_feature_backend(config: KernelRunConfig) -> Any:
-    backend_name = config.backend.lower()
-    if backend_name == "lora_ntk":
-        return LoRANTKFeatureBackend(
+    backend_name = config.feature_backend.lower()
+    if backend_name == "score_gradient":
+        return ScoreGradientFeatureBackend(
             base_model=config.base_model,
             adapter_path=config.adapter_path,
-            leaf_filter=str(config.backend_args.get("leaf_filter", "lora_b_only")),
+            leaf_filter=str(
+                config.feature_backend_args.get("leaf_filter", "lora_b_only")
+            ),
             seed=config.seed,
         )
-    raise ValueError(f"Unknown kernel backend: {config.backend}")
+    raise ValueError(f"Unknown feature backend: {config.feature_backend}")
 
 
-class LoRANTKFeatureBackend:
+class ScoreGradientFeatureBackend:
     def __init__(
         self,
         base_model: str,
@@ -45,7 +47,7 @@ class LoRANTKFeatureBackend:
         if adapter_config is None:
             if adapter_path is None:
                 raise ValueError(
-                    "LoRA NTK features require either `adapter_path` or "
+                    "score gradient features require either `adapter_path` or "
                     "`adapter_config`."
                 )
             adapter_config = self._load_adapter_config(adapter_path)
@@ -53,7 +55,7 @@ class LoRANTKFeatureBackend:
         fine_tune_type = adapter_config.get("fine_tune_type", "lora")
         if fine_tune_type not in {"lora", "dora"}:
             raise ValueError(
-                "LoRA NTK backend only supports LoRA/DoRA adapter configs."
+                "score gradient backend only supports LoRA/DoRA adapter configs."
             )
 
         loaded = load(base_model, lazy=True)
@@ -87,27 +89,27 @@ class LoRANTKFeatureBackend:
         return payload
 
     @classmethod
-    def from_mlx_args(
+    def from_mlx_lora_args(
         cls,
         *,
         base_model: str,
-        mlx_args: dict[str, Any],
+        mlx_lora_args: dict[str, Any],
         leaf_filter: str = "lora_b_only",
         seed: int | None = None,
-    ) -> LoRANTKFeatureBackend:
-        if "num_layers" not in mlx_args:
+    ) -> ScoreGradientFeatureBackend:
+        if "num_layers" not in mlx_lora_args:
             raise ValueError(
-                "LoRA NTK selector requires `mlx_args.num_layers` in the run config."
+                "score gradient selector requires `mlx_lora_args.num_layers` in the run config."
             )
-        raw_lora_parameters = mlx_args.get("lora_parameters")
+        raw_lora_parameters = mlx_lora_args.get("lora_parameters")
         if not isinstance(raw_lora_parameters, dict):
             raise ValueError(
-                "LoRA NTK selector requires `mlx_args.lora_parameters` "
+                "score gradient selector requires `mlx_lora_args.lora_parameters` "
                 "in the run config."
             )
         adapter_config = {
-            "fine_tune_type": str(mlx_args.get("fine_tune_type", "lora")),
-            "num_layers": int(mlx_args["num_layers"]),
+            "fine_tune_type": str(mlx_lora_args.get("fine_tune_type", "lora")),
+            "num_layers": int(mlx_lora_args["num_layers"]),
             "lora_parameters": _normalize_lora_parameters(raw_lora_parameters),
         }
         return cls(
@@ -145,7 +147,7 @@ class LoRANTKFeatureBackend:
                 np.array(value_array.astype(mx.float32), copy=False).reshape(-1)
             )
         if not flattened:
-            raise ValueError("No gradient leaves selected for LoRA NTK features.")
+            raise ValueError("No gradient leaves selected for score gradient features.")
         return np.concatenate(flattened, axis=0)
 
 

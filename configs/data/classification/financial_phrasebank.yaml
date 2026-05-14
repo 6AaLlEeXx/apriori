@@ -1,5 +1,5 @@
 dataset_name: financial_phrasebank
-source_dataset: takala/financial_phrasebank
+upstream_dataset: takala/financial_phrasebank
 output_dir: data/financial_phrasebank
 source:
   type: hf
@@ -15,7 +15,7 @@ split:
     train: 0.8
     valid: 0.1
     test: 0.1
-mapping:
+prompt_completion_mapping:
   type: template
   computed_fields:
     answer_text:

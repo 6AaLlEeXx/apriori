@@ -1,5 +1,5 @@
 dataset_name: billsum
-source_dataset: FiscalNote/billsum
+upstream_dataset: FiscalNote/billsum
 output_dir: data/billsum
 source:
   type: hf
@@ -11,7 +11,7 @@ split:
   strategy: train_valid_existing_test
   seed: 42
   valid_ratio: 0.05
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: |-
     Summarize the following U.S. congressional bill clearly and concisely.

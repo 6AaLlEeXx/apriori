@@ -1,5 +1,5 @@
 dataset_name: open_thoughts_114k
-source_dataset: open-thoughts/OpenThoughts-114k
+upstream_dataset: open-thoughts/OpenThoughts-114k
 output_dir: data/open_thoughts_114k
 source:
   type: hf
@@ -10,7 +10,7 @@ split:
   seed: 42
   valid_ratio: 0.1
   test_ratio: 0.1
-mapping:
+prompt_completion_mapping:
   type: template
   computed_fields:
     user_message:

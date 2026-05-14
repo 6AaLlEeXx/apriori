@@ -1,5 +1,5 @@
 dataset_name: xnli_en
-source_dataset: facebook/xnli
+upstream_dataset: facebook/xnli
 output_dir: data/xnli_en
 source:
   type: hf
@@ -13,7 +13,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   computed_fields:
     answer_text:

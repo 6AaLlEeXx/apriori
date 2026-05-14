@@ -1,5 +1,5 @@
 dataset_name: magicoder
-source_dataset: ise-uiuc/Magicoder-OSS-Instruct-75K
+upstream_dataset: ise-uiuc/Magicoder-OSS-Instruct-75K
 output_dir: data/magicoder
 source:
   type: hf
@@ -14,7 +14,7 @@ split:
     train: 0.9
     valid: 0.05
     test: 0.05
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: |-
     {problem}

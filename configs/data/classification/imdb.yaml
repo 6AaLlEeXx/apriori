@@ -1,5 +1,5 @@
 dataset_name: imdb
-source_dataset: stanfordnlp/imdb
+upstream_dataset: stanfordnlp/imdb
 output_dir: data/imdb
 source:
   type: hf
@@ -11,7 +11,7 @@ split:
   strategy: train_valid_existing_test
   seed: 42
   valid_ratio: 0.05
-mapping:
+prompt_completion_mapping:
   type: template
   computed_fields:
     answer_text:

@@ -1,5 +1,5 @@
 dataset_name: openmathreasoning_cot_60k
-source_dataset: nvidia/OpenMathReasoning
+upstream_dataset: nvidia/OpenMathReasoning
 output_dir: data/openmathreasoning_cot_60k
 source:
   type: hf
@@ -10,7 +10,7 @@ split:
   seed: 42
   valid_ratio: 0.05
   test_ratio: 0.05
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: |-
     Solve the following math problem step by step. Keep the final answer clearly marked.

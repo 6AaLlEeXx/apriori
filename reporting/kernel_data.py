@@ -93,7 +93,7 @@ def kernel_train_size(summary: dict[str, Any]) -> int | None:
         value = number(split_sizes.get("train"))
         if value is not None:
             return int(value)
-    value = number(summary.get("train_limit"))
+    value = number(summary.get("krr_fit_examples"))
     return int(value) if value is not None else None
 
 
@@ -122,9 +122,9 @@ def prediction_points(
 
 def feature_label(feature: str) -> str:
     labels = {
-        "raw": "LoRA-NTK",
-        "sign": "Sign LoRA-NTK",
-        "thresholded_sign": "Thresholded-sign LoRA-NTK",
+        "raw": "Score gradient",
+        "sign": "Sign score gradient",
+        "thresholded_sign": "Thresholded-sign score gradient",
     }
     return labels.get(feature, feature.replace("_", " "))
 

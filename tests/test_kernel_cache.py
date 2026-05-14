@@ -57,7 +57,7 @@ def _kernel_config(tmp_path: Path) -> KernelRunConfig:
     _write_adapter(adapter_dir)
     return KernelRunConfig(
         base_model="models/test",
-        output_root=str(tmp_path / "kernel"),
+        kernel_results_root=str(tmp_path / "kernel"),
         adapter_path=str(adapter_dir),
     )
 
@@ -136,12 +136,12 @@ def test_kernel_feature_cache_is_shared_across_matching_adapter_configs(
     _write_adapter(right_adapter)
     left_config = KernelRunConfig(
         base_model="models/test",
-        output_root=str(tmp_path / "kernel"),
+        kernel_results_root=str(tmp_path / "kernel"),
         adapter_path=str(left_adapter),
     )
     right_config = KernelRunConfig(
         base_model="models/test",
-        output_root=str(tmp_path / "kernel"),
+        kernel_results_root=str(tmp_path / "kernel"),
         adapter_path=str(right_adapter),
     )
     records = _records()["test"]
@@ -169,15 +169,15 @@ def test_kernel_feature_transform_reuses_raw_feature_cache(tmp_path: Path) -> No
     _write_adapter(adapter)
     raw_config = KernelRunConfig(
         base_model="models/test",
-        output_root=str(tmp_path / "kernel"),
+        kernel_results_root=str(tmp_path / "kernel"),
         adapter_path=str(adapter),
-        backend_args={"leaf_filter": "lora_b_only"},
+        feature_backend_args={"leaf_filter": "lora_b_only"},
     )
     transformed_config = KernelRunConfig(
         base_model="models/test",
-        output_root=str(tmp_path / "kernel"),
+        kernel_results_root=str(tmp_path / "kernel"),
         adapter_path=str(adapter),
-        backend_args={
+        feature_backend_args={
             "leaf_filter": "lora_b_only",
             "feature_transform": "thresholded_sign",
             "threshold": 0.1,
@@ -207,7 +207,7 @@ def test_kernel_load_features_applies_thresholded_sign(tmp_path: Path) -> None:
     path = tmp_path / "features.npy"
     np.save(path, np.asarray([[-0.2, -0.05, 0.05, 0.2]], dtype=np.float32))
     config = KernelRunConfig(
-        backend_args={
+        feature_backend_args={
             "feature_transform": "thresholded_sign",
             "threshold": 0.1,
         },

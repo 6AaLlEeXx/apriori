@@ -1,7 +1,7 @@
 extends: ../base/base.yaml
 dataset_name: samsum
 task: samsum
-data_dir: data/samsum
+prepared_data_dir: data/samsum
 run_tags:
   - mlx-lora
   - lora
@@ -13,11 +13,11 @@ evaluation:
     - token_f1
     - rouge_l_f1
   primary_metric: rouge_l_f1
-mlx_args:
+mlx_lora_args:
   iters: 1000
   num_layers: 8
   max_seq_length: 768
 subset_training:
-  iters_policy: match_full_exposure
+  iteration_scaling_policy: match_full_exposure
   min_iters: 1
 notes: Dialogue summarization adapter. SAMSum is non-commercial.

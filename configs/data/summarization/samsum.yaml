@@ -1,5 +1,5 @@
 dataset_name: samsum
-source_dataset: knkarthick/samsum
+upstream_dataset: knkarthick/samsum
 output_dir: data/samsum
 source:
   type: hf
@@ -11,7 +11,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: |-
     Summarize the following conversation in the third person.

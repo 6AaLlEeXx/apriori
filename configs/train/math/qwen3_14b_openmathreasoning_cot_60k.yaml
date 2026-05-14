@@ -2,7 +2,7 @@ extends: ../base/base.yaml
 dataset_name: openmathreasoning_cot_60k
 task: math_reasoning
 base_model: mlx-community/Qwen3-14B-4bit
-data_dir: data/openmathreasoning_cot_60k
+prepared_data_dir: data/openmathreasoning_cot_60k
 run_tags:
   - mlx-lora
   - lora
@@ -16,7 +16,7 @@ evaluation:
     - token_f1
     - gsm8k_answer_accuracy
   primary_metric: gsm8k_answer_accuracy
-mlx_args:
+mlx_lora_args:
   batch_size: 1
   gradient_accumulation_steps: 16
   learning_rate: 3.0e-6
@@ -35,6 +35,6 @@ mlx_args:
     scale: 20.0
     dropout: 0.0
 subset_training:
-  iters_policy: match_full_exposure
+  iteration_scaling_policy: match_full_exposure
   min_iters: 1
 notes: Qwen3-14B 4-bit math-reasoning LoRA on a 60k OpenMathReasoning CoT slice. Lower max_seq_length to 1024 if memory is tight.

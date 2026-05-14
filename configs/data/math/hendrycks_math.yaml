@@ -1,5 +1,5 @@
 dataset_name: hendrycks_math
-source_dataset: hendrycks/competition_math
+upstream_dataset: hendrycks/competition_math
 output_dir: data/hendrycks_math
 source:
   type: hf
@@ -11,7 +11,7 @@ split:
   strategy: train_valid_existing_test
   seed: 42
   valid_ratio: 0.05
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: |-
     Solve the following competition math problem. Show your reasoning and put the final answer inside `\boxed{{...}}`.

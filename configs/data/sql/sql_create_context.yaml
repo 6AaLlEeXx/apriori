@@ -1,5 +1,5 @@
 dataset_name: sql_create_context
-source_dataset: b-mc2/sql-create-context
+upstream_dataset: b-mc2/sql-create-context
 output_dir: data/sql_create_context
 source:
   type: hf
@@ -11,7 +11,7 @@ split:
   seed: 42
   valid_ratio: 0.05
   test_ratio: 0.05
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: |-
     Given the SQL schema, write a SQL query that answers the question. Return only the SQL query.

@@ -129,12 +129,12 @@ def _attach_kernel_baseline_metrics(summary: dict[str, Any]) -> None:
 
 
 def collect_kernel_run_summaries(
-    output_root: str | Path = DEFAULT_KERNEL_RESULTS_ROOT,
+    kernel_results_root: str | Path = DEFAULT_KERNEL_RESULTS_ROOT,
 ) -> list[dict[str, Any]]:
-    output_root = resolve_project_path(output_root)
+    kernel_results_root = resolve_project_path(kernel_results_root)
     summaries: list[dict[str, Any]] = []
     for summary_path in sorted(
-        (output_root / "runs").glob("*/summary.json"),
+        (kernel_results_root / "runs").glob("*/summary.json"),
         reverse=True,
     ):
         try:

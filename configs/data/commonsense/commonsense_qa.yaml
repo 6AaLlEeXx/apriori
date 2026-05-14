@@ -1,5 +1,5 @@
 dataset_name: commonsense_qa
-source_dataset: tau/commonsense_qa
+upstream_dataset: tau/commonsense_qa
 output_dir: data/commonsense_qa
 source:
   type: hf
@@ -11,7 +11,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   computed_fields:
     options_block:

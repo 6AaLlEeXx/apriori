@@ -60,16 +60,16 @@ ScorerFactory = Callable[[str, str | None], Scorer]
 
 def _split_limits(config: KernelRunConfig) -> dict[str, tuple[int, int]]:
     return {
-        "train": (config.train_limit, config.seed),
-        "valid": (config.valid_limit, config.seed + 1),
-        "test": (config.test_limit, config.seed + 2),
+        "train": (config.krr_fit_examples, config.seed),
+        "valid": (config.validation_examples, config.seed + 1),
+        "test": (config.test_examples, config.seed + 2),
     }
 
 
 def validate_kernel_run_inputs(config: KernelRunConfig) -> None:
-    data_dir = resolve_project_path(config.data_dir)
+    prepared_data_dir = resolve_project_path(config.prepared_data_dir)
     for split, (limit, seed) in _split_limits(config).items():
-        split_path = data_dir / f"{split}.jsonl"
+        split_path = prepared_data_dir / f"{split}.jsonl"
         if not split_path.exists():
             raise FileNotFoundError(f"Kernel data split not found: {split_path}")
         if split_path.stat().st_size == 0:
@@ -106,11 +106,11 @@ def validate_kernel_run_inputs(config: KernelRunConfig) -> None:
 def _load_split_records(
     config: KernelRunConfig,
 ) -> dict[str, list[PairRecord]]:
-    data_dir = resolve_project_path(config.data_dir)
+    prepared_data_dir = resolve_project_path(config.prepared_data_dir)
     raw = {
-        "train": load_pair_split(data_dir / "train.jsonl", split="train"),
-        "valid": load_pair_split(data_dir / "valid.jsonl", split="valid"),
-        "test": load_pair_split(data_dir / "test.jsonl", split="test"),
+        "train": load_pair_split(prepared_data_dir / "train.jsonl", split="train"),
+        "valid": load_pair_split(prepared_data_dir / "valid.jsonl", split="valid"),
+        "test": load_pair_split(prepared_data_dir / "test.jsonl", split="test"),
     }
     return {
         split: maybe_subset_pairs(records, limit=limit, seed=seed)
@@ -226,7 +226,7 @@ def _adapter_score_payload(adapter_path: str | Path | None) -> dict[str, Any]:
 
 
 def _kernel_cache_root(config: KernelRunConfig) -> Path:
-    return resolve_project_path(config.output_root) / "cache"
+    return resolve_project_path(config.kernel_results_root) / "cache"
 
 
 def _score_cache_path(
@@ -251,45 +251,48 @@ def _feature_cache_path(
 ) -> Path:
     extraction_backend_args = {
         key: value
-        for key, value in dict(config.backend_args).items()
+        for key, value in dict(config.feature_backend_args).items()
         if key not in FEATURE_TRANSFORM_BACKEND_ARG_KEYS
     }
     payload = {
         "version": KERNEL_CACHE_VERSION,
         "kind": "features",
-        "backend": config.backend,
+        "feature_backend": config.feature_backend,
         "base_model": config.base_model,
         "seed": config.seed,
-        "backend_args": extraction_backend_args,
+        "feature_backend_args": extraction_backend_args,
         "adapter_config": _adapter_config_payload(config.adapter_path),
         "records": _records_payload(records),
     }
-    backend = config.backend.lower().replace("-", "_")
+    feature_backend = config.feature_backend.lower().replace("-", "_")
     return (
         _kernel_cache_root(config)
         / "features"
-        / backend
+        / feature_backend
         / f"{_json_hash(payload)}.npy"
     )
 
 
 def _feature_transform_names(config: KernelRunConfig) -> list[str]:
-    raw = config.backend_args.get(
+    raw = config.feature_backend_args.get(
         "feature_transformations",
-        config.backend_args.get("feature_transform"),
+        config.feature_backend_args.get("feature_transform"),
     )
     return normalize_transformation_names(raw)
 
 
 def _feature_transform_params(config: KernelRunConfig) -> dict[str, dict[str, Any]]:
-    raw = config.backend_args.get(
+    raw = config.feature_backend_args.get(
         "feature_transformation_params",
-        config.backend_args.get("feature_transform_params"),
+        config.feature_backend_args.get("feature_transform_params"),
     )
     params = normalize_transformation_params(raw if isinstance(raw, dict) else None)
-    if "threshold" in config.backend_args:
+    if "threshold" in config.feature_backend_args:
         thresholded_params = dict(params.get("thresholded_sign", {}))
-        thresholded_params.setdefault("threshold", config.backend_args["threshold"])
+        thresholded_params.setdefault(
+            "threshold",
+            config.feature_backend_args["threshold"],
+        )
         params["thresholded_sign"] = thresholded_params
     return params
 
@@ -487,23 +490,23 @@ def _predict_targets(
     train_features: Array,
     train_targets: FloatArray,
 ) -> tuple[Any, dict[str, Any]]:
-    method = config.kernel.method.lower()
+    method = config.krr.method.lower()
     if method == "dual":
         k_train = _kernel_from_features(train_features, train_features)
         model = fit_krr_dual(
             k_train=k_train,
             targets=train_targets,
-            ridge_lambda=config.kernel.ridge_lambda,
+            ridge_lambda=config.krr.ridge_lambda,
         )
         payload = {
             "method": "dual",
-            "ridge_lambda": config.kernel.ridge_lambda,
+            "ridge_lambda": config.krr.ridge_lambda,
         }
         return model, payload
 
     if method == "nystrom":
-        landmark_count = min(config.kernel.num_landmarks, len(train_features))
-        rank = min(config.kernel.rank, landmark_count)
+        landmark_count = min(config.krr.num_landmarks, len(train_features))
+        rank = min(config.krr.rank, landmark_count)
         landmark_indices = select_landmarks(
             n_train=len(train_features),
             count=landmark_count,
@@ -516,20 +519,20 @@ def _predict_targets(
             k_train_landmarks=k_train_landmarks,
             k_landmarks=k_landmarks,
             targets=train_targets,
-            ridge_lambda=config.kernel.ridge_lambda,
+            ridge_lambda=config.krr.ridge_lambda,
             rank=rank,
             landmark_indices=landmark_indices,
         )
         payload = {
             "method": "nystrom",
-            "ridge_lambda": config.kernel.ridge_lambda,
+            "ridge_lambda": config.krr.ridge_lambda,
             "rank": rank,
             "num_landmarks": landmark_count,
             "landmark_indices": landmark_indices.tolist(),
         }
         return model, payload
 
-    raise ValueError(f"Unsupported kernel method: {config.kernel.method}")
+    raise ValueError(f"Unsupported KRR method: {config.krr.method}")
 
 
 def _predict_split(
@@ -539,7 +542,7 @@ def _predict_split(
     train_features: Array,
     split_features: Array,
 ) -> FloatArray:
-    method = config.kernel.method.lower()
+    method = config.krr.method.lower()
     if method == "dual":
         k_split_train = _kernel_from_features(split_features, train_features)
         return predict_krr_dual(fitted_model, k_split_train).reshape(-1)
@@ -548,7 +551,7 @@ def _predict_split(
         train_landmarks = train_features[landmark_indices]
         k_split_landmarks = _kernel_from_features(split_features, train_landmarks)
         return predict_krr_nystrom(fitted_model, k_split_landmarks).reshape(-1)
-    raise ValueError(f"Unsupported kernel method: {config.kernel.method}")
+    raise ValueError(f"Unsupported KRR method: {config.krr.method}")
 
 
 def _build_prediction_rows(
@@ -610,7 +613,7 @@ def run_kernel_experiment(
     run_name: str | None = None,
 ) -> KernelRunPaths:
     runtime_config = resolve_kernel_run_config(config)
-    if runtime_config.target != "score_delta":
+    if runtime_config.prediction_target != "score_delta":
         raise ValueError("Only `score_delta` is currently implemented for kernel runs.")
     validate_kernel_run_inputs(runtime_config)
     run_name = run_name or build_kernel_run_name(runtime_config)
@@ -683,8 +686,8 @@ def run_kernel_experiment(
         train_targets=targets,
     )
     eval_payload: dict[str, Any] = {
-        "backend": runtime_config.backend,
-        "target": runtime_config.target,
+        "feature_backend": runtime_config.feature_backend,
+        "prediction_target": runtime_config.prediction_target,
         "feature_dim": feature_dim,
         "feature_transform": _feature_transform_payload(runtime_config),
         "timestamp": now_iso(),
@@ -733,9 +736,9 @@ def run_kernel_experiment(
         "dataset_name": runtime_config.dataset_name,
         "task": runtime_config.task,
         "base_model": runtime_config.base_model,
-        "data_dir": runtime_config.data_dir,
-        "backend": runtime_config.backend,
-        "target": runtime_config.target,
+        "prepared_data_dir": runtime_config.prepared_data_dir,
+        "feature_backend": runtime_config.feature_backend,
+        "prediction_target": runtime_config.prediction_target,
         "feature_transform": eval_payload["feature_transform"],
         "feature_transform_label": eval_payload["feature_transform"]["label"],
         "adapter_path": runtime_config.adapter_path,

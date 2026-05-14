@@ -20,11 +20,11 @@ except ImportError:  # pragma: no cover - optional dependency
     yaml = None
 
 
-SUPPORTED_KERNEL_BACKENDS = {"lora_ntk"}
+SUPPORTED_FEATURE_BACKENDS = {"score_gradient"}
 
 
 @dataclass
-class KernelMethodConfig:
+class KrrConfig:
     method: str = "nystrom"
     ridge_lambda: float = 1e-2
     rank: int = 32
@@ -36,24 +36,24 @@ class KernelRunConfig:
     dataset_name: str = "dolly"
     task: str = "generic"
     base_model: str = "mlx-community/SmolLM2-1.7B-Instruct"
-    data_dir: str = "data/dolly"
+    prepared_data_dir: str = "data/dolly"
     adapter_path: str = ""
-    output_root: str = DEFAULT_KERNEL_RESULTS_ROOT
-    backend: str = "lora_ntk"
-    target: str = "score_delta"
+    kernel_results_root: str = DEFAULT_KERNEL_RESULTS_ROOT
+    feature_backend: str = "score_gradient"
+    prediction_target: str = "score_delta"
     seed: int = 42
-    train_limit: int = 128
-    valid_limit: int = 128
-    test_limit: int = 128
-    kernel: KernelMethodConfig = field(default_factory=KernelMethodConfig)
-    backend_args: dict[str, Any] = field(default_factory=dict)
-    source_config: dict[str, str] = field(default_factory=dict)
+    krr_fit_examples: int = 128
+    validation_examples: int = 128
+    test_examples: int = 128
+    krr: KrrConfig = field(default_factory=KrrConfig)
+    feature_backend_args: dict[str, Any] = field(default_factory=dict)
+    provenance_configs: dict[str, str] = field(default_factory=dict)
     run_tags: list[str] = field(default_factory=list)
     notes: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        payload["kernel"] = asdict(self.kernel)
+        payload["krr"] = asdict(self.krr)
         return payload
 
 
@@ -141,19 +141,19 @@ def load_kernel_run_config(path: str | Path) -> KernelRunConfig:
 
     merged = dict(defaults)
     merged.update(raw)
-    kernel_payload = dict(merged.get("kernel", {}))
-    merged["kernel"] = KernelMethodConfig(**kernel_payload)
-    merged["backend_args"] = dict(merged.get("backend_args", {}))
-    merged["source_config"] = {
+    krr_payload = dict(merged.get("krr", {}))
+    merged["krr"] = KrrConfig(**krr_payload)
+    merged["feature_backend_args"] = dict(merged.get("feature_backend_args", {}))
+    merged["provenance_configs"] = {
         str(key): str(value)
-        for key, value in dict(merged.get("source_config", {})).items()
+        for key, value in dict(merged.get("provenance_configs", {})).items()
     }
     merged["run_tags"] = [str(tag) for tag in merged.get("run_tags", [])]
-    if str(merged["backend"]) not in SUPPORTED_KERNEL_BACKENDS:
-        supported = ", ".join(sorted(SUPPORTED_KERNEL_BACKENDS))
+    if str(merged["feature_backend"]) not in SUPPORTED_FEATURE_BACKENDS:
+        supported = ", ".join(sorted(SUPPORTED_FEATURE_BACKENDS))
         raise ValueError(
-            f"Unsupported kernel backend `{merged['backend']}`. "
-            f"Supported backends: {supported}"
+            f"Unsupported feature backend `{merged['feature_backend']}`. "
+            f"Supported feature backends: {supported}"
         )
     return KernelRunConfig(**merged)
 
@@ -183,32 +183,32 @@ def build_kernel_run_name(
 ) -> str:
     created_at = created_at or datetime.now().astimezone()
     timestamp = created_at.strftime("%Y%m%d-%H%M%S")
-    method = _slugify(config.kernel.method)
-    backend = _slugify(config.backend)
+    method = _slugify(config.krr.method)
+    feature_backend = _slugify(config.feature_backend)
     dataset = _slugify(config.dataset_name)
     model = _slugify(config.base_model.rsplit("/", 1)[-1])
-    target = _slugify(config.target)
+    prediction_target = _slugify(config.prediction_target)
     return "__".join(
         [
             timestamp,
             model,
             dataset,
-            backend,
-            target,
+            feature_backend,
+            prediction_target,
             method,
-            f"n{config.train_limit}",
+            f"fit{config.krr_fit_examples}",
             f"s{config.seed}",
         ]
     )
 
 
 def _load_lora_run_summaries(
-    output_root: str | Path = DEFAULT_RESULTS_ROOT,
+    results_root: str | Path = DEFAULT_RESULTS_ROOT,
 ) -> list[dict[str, Any]]:
-    output_root = resolve_project_path(output_root)
+    results_root = resolve_project_path(results_root)
     summaries: list[dict[str, Any]] = []
     for summary_path in sorted(
-        (output_root / "runs").glob("*/summary.json"), reverse=True
+        (results_root / "runs").glob("*/summary.json"), reverse=True
     ):
         try:
             summaries.append(json.loads(summary_path.read_text()))
@@ -219,7 +219,7 @@ def _load_lora_run_summaries(
 
 def resolve_adapter_path(
     config: KernelRunConfig,
-    output_root: str | Path = DEFAULT_RESULTS_ROOT,
+    results_root: str | Path = DEFAULT_RESULTS_ROOT,
 ) -> str:
     raw = str(config.adapter_path or "").strip()
     if raw and "<" not in raw:
@@ -230,7 +230,7 @@ def resolve_adapter_path(
     target_dataset = _dataset_key(config.dataset_name)
     target_model = str(config.base_model).strip()
     candidates: list[dict[str, Any]] = []
-    for summary in _load_lora_run_summaries(output_root):
+    for summary in _load_lora_run_summaries(results_root):
         adapter_dir = str(summary.get("adapter_dir") or "").strip()
         if not adapter_dir or not Path(adapter_dir).exists():
             continue
@@ -249,7 +249,7 @@ def resolve_adapter_path(
     if not candidates:
         raise FileNotFoundError(
             "Could not resolve a completed adapter directory for dataset "
-            f"`{config.dataset_name}` under {resolve_project_path(output_root)}/runs. "
+            f"`{config.dataset_name}` under {resolve_project_path(results_root)}/runs. "
             "Set `adapter_path` explicitly or train the adapter first."
         )
 
@@ -266,9 +266,9 @@ def resolve_adapter_path(
 
 def resolve_kernel_run_config(
     config: KernelRunConfig,
-    output_root: str | Path = DEFAULT_RESULTS_ROOT,
+    results_root: str | Path = DEFAULT_RESULTS_ROOT,
 ) -> KernelRunConfig:
-    resolved_adapter_path = resolve_adapter_path(config, output_root=output_root)
+    resolved_adapter_path = resolve_adapter_path(config, results_root=results_root)
     return replace(config, adapter_path=resolved_adapter_path)
 
 
@@ -276,8 +276,8 @@ def prepare_kernel_run(
     config: KernelRunConfig,
     run_name: str,
 ) -> KernelRunPaths:
-    output_root = resolve_project_path(config.output_root)
-    run_dir = output_root / "runs" / run_name
+    kernel_results_root = resolve_project_path(config.kernel_results_root)
+    run_dir = kernel_results_root / "runs" / run_name
     if run_dir.exists():
         raise FileExistsError(f"Run directory already exists: {run_dir}")
     scores_dir = run_dir / "scores"
@@ -317,17 +317,17 @@ def build_kernel_metadata(
         "dataset_name": config.dataset_name,
         "task": config.task,
         "base_model": config.base_model,
-        "data_dir": str(resolve_project_path(config.data_dir)),
+        "prepared_data_dir": str(resolve_project_path(config.prepared_data_dir)),
         "adapter_path": config.adapter_path,
-        "backend": config.backend,
-        "target": config.target,
+        "feature_backend": config.feature_backend,
+        "prediction_target": config.prediction_target,
         "seed": config.seed,
-        "train_limit": config.train_limit,
-        "valid_limit": config.valid_limit,
-        "test_limit": config.test_limit,
-        "kernel": asdict(config.kernel),
-        "backend_args": dict(config.backend_args),
-        "source_config": dict(config.source_config),
+        "krr_fit_examples": config.krr_fit_examples,
+        "validation_examples": config.validation_examples,
+        "test_examples": config.test_examples,
+        "krr": asdict(config.krr),
+        "feature_backend_args": dict(config.feature_backend_args),
+        "provenance_configs": dict(config.provenance_configs),
         "run_tags": list(config.run_tags),
         "notes": config.notes,
     }

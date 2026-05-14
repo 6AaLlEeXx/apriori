@@ -1,0 +1,12 @@
+extends: qwen3_14b_openmathreasoning_cot_60k_score_gradient.yaml
+feature_backend_args:
+  leaf_filter: lora_b_only
+  feature_transform: thresholded_sign
+  threshold: 0.1
+run_tags:
+  - mlx-lora
+  - kernel
+  - qwen3-14b
+  - openmathreasoning
+  - thresholded-sign
+notes: score-gradient score-delta KRR for Qwen3-14B OpenMathReasoning with thresholded-sign gradient features.

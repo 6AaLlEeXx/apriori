@@ -1,5 +1,5 @@
 dataset_name: orca_math
-source_dataset: microsoft/orca-math-word-problems-200k
+upstream_dataset: microsoft/orca-math-word-problems-200k
 output_dir: data/orca_math
 source:
   type: hf
@@ -11,7 +11,7 @@ split:
   seed: 42
   valid_ratio: 0.02
   test_ratio: 0.02
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: |-
     Solve the following math word problem. Show your reasoning.

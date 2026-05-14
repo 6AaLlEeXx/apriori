@@ -21,11 +21,11 @@ RecordFormatter = Callable[[dict[str, Any]], dict[str, str]]
 
 TOP_LEVEL_KEYS = {
     "dataset_name",
-    "source_dataset",
+    "upstream_dataset",
     "output_dir",
     "source",
     "split",
-    "mapping",
+    "prompt_completion_mapping",
     "filters",
     "metadata",
 }
@@ -53,7 +53,7 @@ SPLIT_KEYS = {
     "ratios",
     "max_examples_per_split",
 }
-MAPPING_KEYS = {
+PROMPT_COMPLETION_MAPPING_KEYS = {
     "type",
     "computed_fields",
     "prompt_template",
@@ -455,28 +455,39 @@ def _validate_template_syntax(template: str, location: str) -> None:
         raise ValueError(f"Invalid format template at `{location}`: {exc}") from exc
 
 
-def _validate_mapping_config(mapping: dict[str, Any]) -> None:
-    _expect_unknown_keys(mapping, MAPPING_KEYS, "mapping")
-    mapping_type = str(mapping.get("type", "template"))
-    if mapping_type != "template":
-        raise ValueError("Only `mapping.type: template` is supported.")
-    if not isinstance(mapping.get("completion_template"), str):
-        raise ValueError("`mapping.completion_template` is required.")
-    _validate_template_syntax(
-        mapping["completion_template"],
-        "mapping.completion_template",
+def _validate_prompt_completion_mapping_config(
+    prompt_completion_mapping: dict[str, Any],
+) -> None:
+    _expect_unknown_keys(
+        prompt_completion_mapping,
+        PROMPT_COMPLETION_MAPPING_KEYS,
+        "prompt_completion_mapping",
     )
-    prompt_template = mapping.get("prompt_template")
-    prompt_parts = mapping.get("prompt_parts")
+    mapping_type = str(prompt_completion_mapping.get("type", "template"))
+    if mapping_type != "template":
+        raise ValueError(
+            "Only `prompt_completion_mapping.type: template` is supported."
+        )
+    if not isinstance(prompt_completion_mapping.get("completion_template"), str):
+        raise ValueError("`prompt_completion_mapping.completion_template` is required.")
+    _validate_template_syntax(
+        prompt_completion_mapping["completion_template"],
+        "prompt_completion_mapping.completion_template",
+    )
+    prompt_template = prompt_completion_mapping.get("prompt_template")
+    prompt_parts = prompt_completion_mapping.get("prompt_parts")
     if not isinstance(prompt_template, str) and not isinstance(prompt_parts, list):
         raise ValueError(
-            "`mapping` requires either `prompt_template` or `prompt_parts`."
+            "`prompt_completion_mapping` requires either `prompt_template` or `prompt_parts`."
         )
     if isinstance(prompt_template, str):
-        _validate_template_syntax(prompt_template, "mapping.prompt_template")
+        _validate_template_syntax(
+            prompt_template,
+            "prompt_completion_mapping.prompt_template",
+        )
     if isinstance(prompt_parts, list):
         for index, part in enumerate(prompt_parts):
-            location = f"mapping.prompt_parts[{index}]"
+            location = f"prompt_completion_mapping.prompt_parts[{index}]"
             if isinstance(part, str):
                 _validate_template_syntax(part, location)
                 continue
@@ -489,75 +500,78 @@ def _validate_mapping_config(mapping: dict[str, Any]) -> None:
             if not isinstance(part.get("template"), str):
                 raise ValueError(f"`{location}.template` is required.")
             _validate_template_syntax(part["template"], f"{location}.template")
-    computed_fields = mapping.get("computed_fields") or {}
-    computed_fields = _expect_mapping(computed_fields, "mapping.computed_fields")
+    computed_fields = prompt_completion_mapping.get("computed_fields") or {}
+    computed_fields = _expect_mapping(
+        computed_fields,
+        "prompt_completion_mapping.computed_fields",
+    )
     for name, spec in computed_fields.items():
         _validate_computed_field(name, spec)
 
 
 def _validate_computed_field(name: str, spec: Any) -> None:
-    spec = _expect_mapping(spec, f"mapping.computed_fields.{name}")
+    spec = _expect_mapping(spec, f"prompt_completion_mapping.computed_fields.{name}")
     if len(spec) != 1:
         raise ValueError(
-            f"`mapping.computed_fields.{name}` must specify exactly one operation."
+            f"`prompt_completion_mapping.computed_fields.{name}` must specify exactly one operation."
         )
     ((op_name, op_spec),) = spec.items()
     if op_name not in COMPUTED_FIELD_OPS:
         raise ValueError(
             f"Unknown computed_fields op `{op_name}` in "
-            f"`mapping.computed_fields.{name}`. "
+            f"`prompt_completion_mapping.computed_fields.{name}`. "
             f"Supported: {sorted(COMPUTED_FIELD_OPS)}"
         )
     if op_name == "first_non_empty":
         if not isinstance(op_spec, list) or not op_spec:
             raise ValueError(
-                f"`mapping.computed_fields.{name}.first_non_empty` "
+                f"`prompt_completion_mapping.computed_fields.{name}.first_non_empty` "
                 "must be a non-empty list."
             )
         if not all(isinstance(source, str) for source in op_spec):
             raise ValueError(
-                f"`mapping.computed_fields.{name}.first_non_empty` "
+                f"`prompt_completion_mapping.computed_fields.{name}.first_non_empty` "
                 "must contain only strings."
             )
     elif op_name == "format_choices":
         op_spec = _expect_mapping(
-            op_spec, f"mapping.computed_fields.{name}.format_choices"
+            op_spec, f"prompt_completion_mapping.computed_fields.{name}.format_choices"
         )
         _expect_unknown_keys(
             op_spec,
             FORMAT_CHOICES_KEYS,
-            f"mapping.computed_fields.{name}.format_choices",
+            f"prompt_completion_mapping.computed_fields.{name}.format_choices",
         )
         text_field = op_spec.get("text_field")
         if isinstance(text_field, list):
             if not text_field or not all(isinstance(f, str) for f in text_field):
                 raise ValueError(
-                    f"`mapping.computed_fields.{name}.format_choices.text_field` "
+                    f"`prompt_completion_mapping.computed_fields.{name}.format_choices.text_field` "
                     "as a list must be a non-empty list of dotted-path strings."
                 )
         elif not isinstance(text_field, str):
             raise ValueError(
-                f"`mapping.computed_fields.{name}.format_choices.text_field` "
+                f"`prompt_completion_mapping.computed_fields.{name}.format_choices.text_field` "
                 "must be a dotted-path string or a list of dotted-path strings."
             )
     elif op_name == "lookup_index":
         op_spec = _expect_mapping(
-            op_spec, f"mapping.computed_fields.{name}.lookup_index"
+            op_spec, f"prompt_completion_mapping.computed_fields.{name}.lookup_index"
         )
         _expect_unknown_keys(
             op_spec,
             LOOKUP_INDEX_KEYS,
-            f"mapping.computed_fields.{name}.lookup_index",
+            f"prompt_completion_mapping.computed_fields.{name}.lookup_index",
         )
         if not isinstance(op_spec.get("index"), str):
             raise ValueError(
-                f"`mapping.computed_fields.{name}.lookup_index.index` is required."
+                f"`prompt_completion_mapping.computed_fields.{name}.lookup_index.index` is required."
             )
         has_list = isinstance(op_spec.get("list"), str)
         has_labels = isinstance(op_spec.get("labels"), list)
         if not op_spec.get("as_letter", False) and not (has_list or has_labels):
             raise ValueError(
-                f"`mapping.computed_fields.{name}.lookup_index` requires one of "
+                f"`prompt_completion_mapping.computed_fields.{name}.lookup_index` requires one of "
                 "`list`, `labels`, or `as_letter: true`."
             )
 
@@ -637,7 +651,12 @@ def validate_data_prep_config(config: dict[str, Any]) -> None:
             split_config["max_examples_per_split"],
             "split.max_examples_per_split",
         )
-    _validate_mapping_config(_expect_mapping(config.get("mapping"), "mapping"))
+    _validate_prompt_completion_mapping_config(
+        _expect_mapping(
+            config.get("prompt_completion_mapping"),
+            "prompt_completion_mapping",
+        )
+    )
     _validate_filter_config(_expect_mapping(config.get("filters") or {}, "filters"))
     if "metadata" in config:
         _expect_mapping(config["metadata"], "metadata")
@@ -778,16 +797,25 @@ def _apply_computed_fields(
     return row
 
 
-def build_record_formatter(mapping_config: dict[str, Any]) -> RecordFormatter:
-    mapping_config = _expect_mapping(mapping_config, "mapping")
-    if str(mapping_config.get("type", "template")) != "template":
-        raise ValueError("Only `mapping.type: template` is supported.")
+def build_record_formatter(
+    prompt_completion_mapping_config: dict[str, Any],
+) -> RecordFormatter:
+    prompt_completion_mapping_config = _expect_mapping(
+        prompt_completion_mapping_config,
+        "prompt_completion_mapping",
+    )
+    if str(prompt_completion_mapping_config.get("type", "template")) != "template":
+        raise ValueError(
+            "Only `prompt_completion_mapping.type: template` is supported."
+        )
 
-    completion_template = str(mapping_config["completion_template"])
-    prompt_template = mapping_config.get("prompt_template")
-    prompt_parts = mapping_config.get("prompt_parts")
-    prompt_joiner = str(mapping_config.get("prompt_joiner", "\n\n"))
-    computed_fields = dict(mapping_config.get("computed_fields") or {})
+    completion_template = str(
+        prompt_completion_mapping_config["completion_template"]
+    )
+    prompt_template = prompt_completion_mapping_config.get("prompt_template")
+    prompt_parts = prompt_completion_mapping_config.get("prompt_parts")
+    prompt_joiner = str(prompt_completion_mapping_config.get("prompt_joiner", "\n\n"))
+    computed_fields = dict(prompt_completion_mapping_config.get("computed_fields") or {})
 
     def formatter(example: dict[str, Any]) -> dict[str, str]:
         row = {
@@ -1072,10 +1100,10 @@ def build_dataset_splits(dataset: Any, config: dict[str, Any]) -> dict[str, Any]
     }
 
 
-def _source_dataset_name(config: dict[str, Any]) -> str:
+def _upstream_dataset_name(config: dict[str, Any]) -> str:
     source = _expect_mapping(config.get("source"), "source")
     return str(
-        config.get("source_dataset")
+        config.get("upstream_dataset")
         or source.get("path")
         or source.get("dataset")
         or source.get("type", "unknown")
@@ -1258,14 +1286,14 @@ def write_jsonl(
 def write_metadata(
     output_dir: str | Path,
     dataset_name: str,
-    source_dataset: str,
+    upstream_dataset: str,
     split_counts: dict[str, int],
     seed: int,
     extra: dict[str, Any] | None = None,
 ) -> Path:
     payload = {
         "dataset_name": dataset_name,
-        "source_dataset": source_dataset,
+        "upstream_dataset": upstream_dataset,
         "seed": seed,
         "split_counts": split_counts,
     }
@@ -1309,7 +1337,7 @@ def prepare_dataset_from_config(
     target_dir = ensure_dir(config.get("output_dir") or f"data/{dataset_name}")
     source_data = load_dataset_from_source(config["source"])
     splits = build_dataset_splits(source_data, config)
-    formatter = build_record_formatter(config["mapping"])
+    formatter = build_record_formatter(config["prompt_completion_mapping"])
     filters = _write_filters(config)
 
     split_counts: dict[str, int] = {}
@@ -1327,14 +1355,14 @@ def prepare_dataset_from_config(
     write_metadata(
         output_dir=target_dir,
         dataset_name=dataset_name,
-        source_dataset=_source_dataset_name(config),
+        upstream_dataset=_upstream_dataset_name(config),
         split_counts=split_counts,
         seed=_configured_seed(config),
         extra={
             "config_path": str(resolve_existing_project_path(config_path)),
             "source": config.get("source", {}),
             "split": config.get("split", {}),
-            "mapping": config.get("mapping", {}),
+            "prompt_completion_mapping": config.get("prompt_completion_mapping", {}),
             "filters": filters.to_metadata(),
             "filter_stats": filter_stats,
             "metadata": config.get("metadata", {}),

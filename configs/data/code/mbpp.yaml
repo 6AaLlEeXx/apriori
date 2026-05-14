@@ -1,5 +1,5 @@
 dataset_name: mbpp
-source_dataset: google-research-datasets/mbpp
+upstream_dataset: google-research-datasets/mbpp
 output_dir: data/mbpp
 source:
   type: hf
@@ -12,7 +12,7 @@ source:
 split:
   strategy: existing
   seed: 42
-mapping:
+prompt_completion_mapping:
   type: template
   prompt_template: |-
     Write a Python function that solves the problem. Output only the code.
