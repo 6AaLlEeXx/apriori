@@ -93,7 +93,6 @@ def main() -> None:
     print(f"Comparison directory: {paths.output_dir}")
     print(f"Scores: {paths.scores_path}")
     print(f"Summary: {paths.summary_path}")
-    print(f"Report: {paths.report_path}")
     print(
         "Delta Pearson: "
         f"{summary['metrics']['delta']['pearson']:.4f}; "

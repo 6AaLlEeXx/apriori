@@ -1,0 +1,26 @@
+extends: ../base/score_delta.yaml
+dataset_name: openmathreasoning_cot_60k
+task: math_reasoning
+base_model: mlx-community/Qwen3-14B-4bit
+data_dir: data/openmathreasoning_cot_60k
+adapter_path: ""
+backend: lora_ntk
+train_limit: 32
+valid_limit: 32
+test_limit: 64
+kernel:
+  method: nystrom
+  ridge_lambda: 1.0e-2
+  rank: 24
+  num_landmarks: 24
+backend_args:
+  leaf_filter: lora_b_only
+source_config:
+  data: configs/data/math/openmathreasoning_cot_60k.yaml
+  training: configs/train/math/qwen3_14b_openmathreasoning_cot_60k.yaml
+run_tags:
+  - mlx-lora
+  - kernel
+  - qwen3-14b
+  - openmathreasoning
+notes: LoRA-NTK score-delta KRR for Qwen3-14B OpenMathReasoning. Start tiny because 14B gradient features are costly.

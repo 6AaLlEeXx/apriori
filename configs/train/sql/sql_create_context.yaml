@@ -1,0 +1,23 @@
+extends: ../base/base.yaml
+dataset_name: sql-create-context
+task: sql
+data_dir: data/sql_create_context
+run_tags:
+  - mlx-lora
+  - lora
+  - sql
+evaluation:
+  name: sql
+  metrics:
+    - exact_match
+    - token_f1
+    - sql_exact_match
+  primary_metric: sql_exact_match
+mlx_args:
+  batch_size: 1
+  gradient_accumulation_steps: 8
+  iters: 1400
+  num_layers: 12
+  max_seq_length: 768
+  learning_rate: 8.0e-6
+notes: Text-to-SQL adapter. Use a 20k to 25k subset first on a 24 GB Mac.

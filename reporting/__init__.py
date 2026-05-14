@@ -1,15 +1,17 @@
 from reporting.plots import (
     PlotArtifact,
-    generate_adapter_comparison_plots,
+    PlotStyle,
     generate_kernel_paper_plots,
-    generate_kernel_prediction_plots,
+    generate_kernel_plots,
+    generate_kernel_standard_plots,
     markdown_plot_section,
 )
 
 __all__ = [
     "PlotArtifact",
-    "generate_adapter_comparison_plots",
+    "PlotStyle",
     "generate_kernel_paper_plots",
-    "generate_kernel_prediction_plots",
+    "generate_kernel_plots",
+    "generate_kernel_standard_plots",
     "markdown_plot_section",
 ]

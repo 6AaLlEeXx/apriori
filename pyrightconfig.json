@@ -3,16 +3,12 @@
     "cli",
     "kernel",
     "selectors",
-    "projection",
     "reporting",
     "transformations",
     "tests",
     "data_prep.py",
-    "eval.py",
-    "feature_pipeline.py",
     "mlops.py",
-    "paths.py",
-    "selector_algorithms.py"
+    "paths.py"
   ],
   "typeCheckingMode": "standard",
   "reportAny": "none",

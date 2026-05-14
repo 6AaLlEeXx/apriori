@@ -1,0 +1,16 @@
+extends: ../base/score_delta.yaml
+dataset_name: gsm8k
+task: gsm8k
+data_dir: data/gsm8k
+backend: lora_ntk
+train_limit: 64
+valid_limit: 64
+test_limit: 64
+kernel:
+  method: nystrom
+  ridge_lambda: 1.0e-2
+  rank: 32
+  num_landmarks: 32
+backend_args:
+  leaf_filter: lora_b_only
+notes: Experimental LoRA-tangent NTK features on a small GSM8K subset.

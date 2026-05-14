@@ -58,7 +58,7 @@ def main() -> None:
     )
     print(f"Kernel run directory: {paths.run_dir}")
     print(f"Kernel summary: {paths.summary_path}")
-    print(f"Kernel report: {paths.report_path}")
+    print(f"Kernel eval: {paths.eval_path}")
 
 
 if __name__ == "__main__":

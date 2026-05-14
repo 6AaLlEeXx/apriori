@@ -65,7 +65,6 @@ class KernelRunPaths:
     resolved_config_path: Path
     summary_path: Path
     eval_path: Path
-    report_path: Path
     scores_dir: Path
     features_dir: Path
     predictions_dir: Path
@@ -294,7 +293,6 @@ def prepare_kernel_run(
         resolved_config_path=run_dir / "resolved_config.yaml",
         summary_path=run_dir / "summary.json",
         eval_path=run_dir / "eval.json",
-        report_path=run_dir / "report.md",
         scores_dir=scores_dir,
         features_dir=features_dir,
         predictions_dir=predictions_dir,

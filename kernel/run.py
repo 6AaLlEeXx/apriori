@@ -604,62 +604,6 @@ def _split_eval_payload(
     )
 
 
-def _build_report_markdown(
-    config: KernelRunConfig,
-    paths: KernelRunPaths,
-    eval_payload: dict[str, Any],
-    feature_dim: int,
-) -> str:
-    lines = [
-        "# Kernel Run",
-        "",
-        f"- Run: `{paths.run_name}`",
-        f"- Dataset: `{config.dataset_name}`",
-        f"- Backend: `{config.backend}`",
-        f"- Target: `{config.target}`",
-        f"- Kernel method: `{config.kernel.method}`",
-        f"- Feature dimension: `{feature_dim}`",
-        f"- Feature transform: `{eval_payload.get('feature_transform', {}).get('label', 'raw')}`",
-        "",
-        "## Split Metrics",
-        "",
-        "| Split | Delta Pearson | Delta Spearman | Delta RMSE | Baseline RMSE | RMSE Gain | Adapter Pearson | Adapter Spearman | Adapter RMSE |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for split in ("train", "valid", "test"):
-        metrics = eval_payload[split]
-        baseline = metrics.get("baseline", {})
-        baseline_delta = baseline.get("delta", {})
-        baseline_rmse = baseline_delta.get("rmse")
-        rmse_gain = (
-            baseline_rmse - metrics["delta"]["rmse"]
-            if baseline_rmse is not None
-            else None
-        )
-        lines.append(
-            "| "
-            + split
-            + " | "
-            + f"{metrics['delta']['pearson']:.4f}"
-            + " | "
-            + f"{metrics['delta']['spearman']:.4f}"
-            + " | "
-            + f"{metrics['delta']['rmse']:.4f}"
-            + " | "
-            + (f"{baseline_rmse:.4f}" if baseline_rmse is not None else "-")
-            + " | "
-            + (f"{rmse_gain:.4f}" if rmse_gain is not None else "-")
-            + " | "
-            + f"{metrics['adapter_score']['pearson']:.4f}"
-            + " | "
-            + f"{metrics['adapter_score']['spearman']:.4f}"
-            + " | "
-            + f"{metrics['adapter_score']['rmse']:.4f}"
-            + " |"
-        )
-    return "\n".join(lines) + "\n"
-
-
 def run_kernel_experiment(
     config: KernelRunConfig,
     config_source: str | Path,
@@ -783,14 +727,6 @@ def run_kernel_experiment(
         "train_mean_delta": baseline_delta,
     }
 
-    report = _build_report_markdown(
-        config=runtime_config,
-        paths=paths,
-        eval_payload=eval_payload,
-        feature_dim=feature_dim,
-    )
-    paths.report_path.write_text(report)
-
     summary = {
         "run_name": paths.run_name,
         "status": "completed",
@@ -825,7 +761,6 @@ def run_kernel_experiment(
         "valid_adapter_pearson": eval_payload["valid"]["adapter_score"]["pearson"],
         "test_adapter_pearson": eval_payload["test"]["adapter_score"]["pearson"],
         "baseline": eval_payload["baseline"],
-        "report_path": str(paths.report_path),
     }
     write_json(paths.eval_path, eval_payload)
     write_json(paths.summary_path, summary)

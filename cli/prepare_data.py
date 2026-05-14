@@ -12,7 +12,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         required=True,
-        help="Path to a data prep config, for example configs/data/dolly.yaml.",
+        help="Path to a data prep config, for example configs/data/instruction/dolly.yaml.",
     )
     parser.add_argument(
         "--output-dir",

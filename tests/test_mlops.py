@@ -5,7 +5,6 @@ import json
 import sys
 
 from cli.run import main as run_cli_main
-from eval import evaluate_predictions
 from mlops import (
     LoraRunConfig,
     RunPaths,
@@ -16,7 +15,6 @@ from mlops import (
     load_lora_run_config,
     prepare_sampled_data_dir,
     parse_mlx_log_line,
-    render_markdown_report,
     summarize_metric_events,
 )
 
@@ -99,7 +97,6 @@ def test_build_train_command_maps_mlx_args_to_cli_flags() -> None:
         metadata_path=Path("results/runs/run-1/metadata.json"),
         resolved_config_path=Path("results/runs/run-1/config.resolved.yaml"),
         summary_path=Path("results/runs/run-1/summary.md"),
-        eval_path=Path("results/runs/run-1/eval.json"),
         command_path=Path("results/runs/run-1/command.txt"),
         mlx_config_path=Path("results/runs/run-1/mlx_config.yaml"),
     )
@@ -131,7 +128,6 @@ def test_build_train_and_test_command_support_data_dir_override() -> None:
         metadata_path=Path("results/runs/run-1/metadata.json"),
         resolved_config_path=Path("results/runs/run-1/config.resolved.yaml"),
         summary_path=Path("results/runs/run-1/summary.md"),
-        eval_path=Path("results/runs/run-1/eval.json"),
         command_path=Path("results/runs/run-1/command.txt"),
         mlx_config_path=Path("results/runs/run-1/mlx_config.yaml"),
     )
@@ -309,10 +305,7 @@ def test_run_cli_dry_run_applies_selector_max_examples(
     assert [row["id"] for row in sampled_rows] == [0, 1]
     assert metadata["sampling"]["max_example"] == 2
     assert metadata["sampling"]["selected_train_examples"] == 2
-    assert metadata["sampling"]["selector_context"]["selector_projection"] == "identity"
-    assert metadata["sampling"]["selector_context"]["selector_transformations"] == [
-        "identity"
-    ]
+    assert metadata["sampling"]["selector_context"]["seed"] == 42
     assert summary["data_dir"] == metadata["train_data_dir"]
     assert summary["sampling"] == metadata["sampling"]
 
@@ -442,57 +435,3 @@ def test_summarize_metric_events_reports_best_val_and_peak_mem() -> None:
     assert summary["best_val_step"] == 20
     assert summary["peak_mem_gb"] == 18.5
     assert summary["test_ppl"] == 3.0
-
-
-def test_evaluate_predictions_supports_gsm8k_and_samsum() -> None:
-    gsm8k = evaluate_predictions(
-        [
-            {"prediction": "The answer is 42", "reference": "42"},
-            {"prediction": "17", "reference": "18"},
-        ],
-        {
-            "name": "gsm8k",
-            "metrics": ["token_f1", "gsm8k_answer_accuracy"],
-            "primary_metric": "gsm8k_answer_accuracy",
-        },
-    )
-    samsum = evaluate_predictions(
-        [{"prediction": "alice is late", "reference": "alice is late"}],
-        {
-            "name": "samsum",
-            "metrics": ["token_f1", "rouge_l_f1"],
-            "primary_metric": "rouge_l_f1",
-        },
-    )
-
-    assert gsm8k["metric_name"] == "gsm8k_answer_accuracy"
-    assert gsm8k["metric_value"] == 0.5
-    assert samsum["metric_name"] == "rouge_l_f1"
-    assert samsum["metric_value"] == 1.0
-
-
-def test_render_markdown_report_includes_task_metric() -> None:
-    report = render_markdown_report(
-        [
-            {
-                "run_name": "run-1",
-                "dataset_name": "gsm8k",
-                "task": "gsm8k",
-                "status": "completed",
-                "adapter_dir": "results/adapters/run-1",
-                "metrics": {
-                    "last_train_loss": 1.2,
-                    "best_val_loss": 1.1,
-                    "test_ppl": 2.9,
-                    "peak_mem_gb": 18.2,
-                },
-                "task_eval": {
-                    "metric_name": "gsm8k_answer_accuracy",
-                    "metric_value": 0.62,
-                },
-            }
-        ]
-    )
-
-    assert "gsm8k_answer_accuracy=0.620" in report
-    assert "run-1" in report

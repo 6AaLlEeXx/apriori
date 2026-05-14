@@ -70,7 +70,6 @@ class RunPaths:
     metadata_path: Path
     resolved_config_path: Path
     summary_path: Path
-    eval_path: Path
     command_path: Path
     mlx_config_path: Path
 
@@ -276,7 +275,6 @@ def prepare_run(
         metadata_path=run_dir / "metadata.json",
         resolved_config_path=run_dir / "resolved_config.yaml",
         summary_path=run_dir / "summary.json",
-        eval_path=run_dir / "eval.json",
         command_path=run_dir / "command.txt",
         mlx_config_path=run_dir / "mlx_config.yaml",
     )
@@ -749,8 +747,6 @@ def build_summary(
     }
     if "sampling" in metadata:
         summary["sampling"] = metadata["sampling"]
-    if paths.eval_path.exists():
-        summary["task_eval"] = load_json(paths.eval_path)
     return summary
 
 
@@ -758,72 +754,3 @@ def write_summary(path: str | Path, payload: dict[str, Any]) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2))
-
-
-def _format_float(value: Any, precision: int = 3) -> str:
-    if value is None:
-        return "-"
-    return f"{float(value):.{precision}f}"
-
-
-def collect_run_summaries(output_root: str | Path) -> list[dict[str, Any]]:
-    output_root = resolve_project_path(output_root)
-    summaries: list[dict[str, Any]] = []
-    for summary_path in sorted(
-        (output_root / "runs").glob("*/summary.json"),
-        reverse=True,
-    ):
-        summary = load_json(summary_path)
-        eval_path = summary_path.parent / "eval.json"
-        if eval_path.exists():
-            summary["task_eval"] = load_json(eval_path)
-        summaries.append(summary)
-    return summaries
-
-
-def _short_model_name(base_model: str) -> str:
-    if not base_model or base_model == "-":
-        return "-"
-    return str(base_model).rsplit("/", 1)[-1]
-
-
-def render_markdown_report(summaries: list[dict[str, Any]]) -> str:
-    lines = [
-        "# LoRA Runs",
-        "",
-        "| Run | Base Model | Dataset | Task | Status | Last Train Loss | Best Val Loss | Test PPL | Task Metric | Peak Mem (GB) | Adapter |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-    ]
-
-    for summary in summaries:
-        metrics = summary.get("metrics", {})
-        task_eval = summary.get("task_eval", {})
-        task_metric = "-"
-        if task_eval:
-            metric_name = task_eval.get("metric_name", "metric")
-            metric_value = task_eval.get("metric_value")
-            task_metric = f"{metric_name}={_format_float(metric_value)}"
-
-        lines.append(
-            "| "
-            + " | ".join(
-                [
-                    summary.get("run_name", "-"),
-                    _short_model_name(summary.get("base_model", "-")),
-                    summary.get("dataset_name", "-"),
-                    summary.get("task", "-"),
-                    summary.get("status", "-"),
-                    _format_float(metrics.get("last_train_loss")),
-                    _format_float(metrics.get("best_val_loss")),
-                    _format_float(metrics.get("test_ppl")),
-                    task_metric,
-                    _format_float(metrics.get("peak_mem_gb")),
-                    f"`{summary.get('adapter_dir', '-')}`",
-                ]
-            )
-            + " |"
-        )
-
-    if len(lines) == 4:
-        lines.extend(["", "_No tracked runs found yet._"])
-    return "\n".join(lines) + "\n"

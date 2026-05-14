@@ -2,95 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
-import xml.etree.ElementTree as ET
 
-from reporting.plots import (
-    generate_adapter_comparison_plots,
-    generate_kernel_prediction_plots,
-    generate_kernel_paper_plots,
-)
+from reporting.plots import generate_kernel_paper_plots, generate_kernel_plots
 
 
-def _svg_width(path: Path) -> int:
-    root = ET.parse(path).getroot()
-    return int(root.attrib["width"])
-
-
-def test_kernel_plots_expand_for_long_titles_and_legends(tmp_path: Path) -> None:
-    run_name = (
-        "samsum-samsum-llama32-1b-20260430-052414-"
-        "kmeans-srp-thresholded-sign-1024-kernel-n256-v64-t2048"
-    )
-    run_dir = tmp_path / "kernel" / run_name
-    predictions_path = run_dir / "predictions" / "test.jsonl"
-    predictions_path.parent.mkdir(parents=True)
-    predictions_path.write_text(
-        "\n".join(
-            json.dumps(
-                {
-                    "score_delta": value,
-                    "predicted_score_delta": value + 0.1,
-                }
-            )
-            for value in (0.1, 0.2, 0.3)
-        )
-        + "\n"
-    )
-
-    generate_kernel_prediction_plots(
-        [
-            {
-                "run_name": run_name,
-                "run_dir": str(run_dir),
-                "split_sizes": {"train": 256},
-                "eval": {
-                    "test": {
-                        "delta": {
-                            "pearson": 0.9,
-                            "rmse": 0.1,
-                        }
-                    }
-                },
-            }
-        ],
-        tmp_path / "plots",
-    )
-
-    scatter_path = tmp_path / "plots" / f"ntk_predicted_vs_true_00_{run_name}.svg"
-    line_path = tmp_path / "plots" / "kernel_train_size_test_delta_pearson.svg"
-
-    assert _svg_width(scatter_path) > 620
-    assert run_name in scatter_path.read_text()
-    assert _svg_width(line_path) > 820
-
-
-def test_adapter_grouped_bar_expands_for_long_method_legend(tmp_path: Path) -> None:
-    method = "kmeans+sparse_random+thresholded_sign"
-
-    generate_adapter_comparison_plots(
-        [
-            {
-                "method": method,
-                "selector_details": {"max_examples": 512},
-                "metrics": {
-                    "delta": {
-                        "pearson": 0.8,
-                        "sign_accuracy": 0.75,
-                        "rmse": 0.2,
-                    },
-                    "adapter_score": {"rmse": 0.3},
-                },
-            }
-        ],
-        tmp_path / "plots",
-    )
-
-    grouped_path = tmp_path / "plots" / "method_delta_pearson.svg"
-    assert _svg_width(grouped_path) > 860
-    assert method in grouped_path.read_text()
-
-
-def test_individual_kernel_paper_plots_can_write_pdf_siblings(
+def test_kernel_paper_plots_auto_select_observed_sizes_and_features(
     tmp_path: Path,
 ) -> None:
     run_dir = tmp_path / "kernel" / "toy-random-512-kernel-n16"
@@ -109,7 +25,7 @@ def test_individual_kernel_paper_plots_can_write_pdf_siblings(
         + "\n"
     )
 
-    generate_kernel_paper_plots(
+    artifacts = generate_kernel_paper_plots(
         [
             (
                 "Toy",
@@ -122,24 +38,84 @@ def test_individual_kernel_paper_plots_can_write_pdf_siblings(
                         "split_sizes": {"train": 16},
                         "feature_transform_label": "raw",
                         "test_delta_rmse_gain": 0.02,
+                        "test_baseline_delta_rmse": 0.2,
+                        "eval": {"test": {"delta": {"rmse": 0.18}}},
                     }
                 ],
             )
         ],
         tmp_path / "paper",
-        train_sizes=[16],
-        features=["raw"],
         adapter_contains="random-512",
         individual=True,
-        pdf=True,
     )
 
-    svg_path = tmp_path / "paper" / "toy_predicted_vs_true_k16.svg"
+    names = {artifact.path.name for artifact in artifacts}
+    assert "toy_predicted_vs_true_k16.pdf" in names
+    assert "toy_rmse_gain.pdf" in names
+    assert "toy_rmse.pdf" in names
     pdf_path = tmp_path / "paper" / "toy_predicted_vs_true_k16.pdf"
-    gain_pdf_path = tmp_path / "paper" / "toy_rmse_gain.pdf"
-    rmse_pdf_path = tmp_path / "paper" / "toy_rmse.pdf"
+    assert pdf_path.exists()
+    assert pdf_path.read_bytes().startswith(b"%PDF")
 
-    assert svg_path.exists()
-    assert pdf_path.read_bytes().startswith(b"%PDF-1.4")
-    assert gain_pdf_path.read_bytes().startswith(b"%PDF-1.4")
-    assert rmse_pdf_path.read_bytes().startswith(b"%PDF-1.4")
+    combined_artifacts = generate_kernel_paper_plots(
+        [
+            (
+                "Toy",
+                [
+                    {
+                        "status": "completed",
+                        "run_name": "toy-random-512-kernel-n16",
+                        "run_dir": str(run_dir),
+                        "adapter_path": "results/adapters/toy-random-512",
+                        "split_sizes": {"train": 16},
+                        "feature_transform_label": "raw",
+                        "test_delta_rmse_gain": 0.02,
+                        "test_baseline_delta_rmse": 0.2,
+                        "eval": {"test": {"delta": {"rmse": 0.18}}},
+                    }
+                ],
+            )
+        ],
+        tmp_path / "combined",
+        adapter_contains="random-512",
+    )
+
+    assert [artifact.path.name for artifact in combined_artifacts] == [
+        "paper_kernel_figures.pdf"
+    ]
+    combined_path = tmp_path / "combined" / "paper_kernel_figures.pdf"
+    assert combined_path.exists()
+    assert combined_path.read_bytes().startswith(b"%PDF")
+
+    standard_artifacts = generate_kernel_plots(
+        [
+            (
+                "Toy",
+                [
+                    {
+                        "status": "completed",
+                        "run_name": "toy-random-512-kernel-n16",
+                        "run_dir": str(run_dir),
+                        "adapter_path": "results/adapters/toy-random-512",
+                        "split_sizes": {"train": 16},
+                        "feature_transform_label": "raw",
+                        "test_delta_rmse_gain": 0.02,
+                        "test_baseline_delta_rmse": 0.2,
+                        "eval": {"test": {"delta": {"rmse": 0.18}}},
+                    }
+                ],
+            )
+        ],
+        tmp_path / "standard",
+        adapter_contains="random-512",
+        individual=True,
+        plot_style="standard",
+    )
+
+    standard_names = {artifact.path.name for artifact in standard_artifacts}
+    assert "toy_standard_predicted_vs_true_k16.pdf" in standard_names
+    assert "toy_standard_rmse_gain.pdf" in standard_names
+    assert "toy_standard_rmse.pdf" in standard_names
+    standard_pdf_path = tmp_path / "standard" / "toy_standard_rmse.pdf"
+    assert standard_pdf_path.exists()
+    assert standard_pdf_path.read_bytes().startswith(b"%PDF")

@@ -28,7 +28,6 @@ from mlops import (
     write_mlx_runtime_config,
     write_summary,
 )
-from paths import resolve_project_path
 
 
 SUBSET_ITERS_POLICIES = {
@@ -130,56 +129,6 @@ def parse_args() -> argparse.Namespace:
         help="Optional max-examples value passed to `select_samples`.",
     )
     parser.add_argument(
-        "--selector-transformation",
-        action="append",
-        default=None,
-        help=(
-            "Feature transformation applied before selector clustering. "
-            "Can be passed multiple times. Defaults to identity."
-        ),
-    )
-    parser.add_argument(
-        "--selector-projection",
-        default="identity",
-        help=(
-            "Feature projection applied before selector clustering. "
-            "Use sparse_random for SparseRandomProjection. Defaults to identity."
-        ),
-    )
-    parser.add_argument(
-        "--selector-thresholded-sign-threshold",
-        type=float,
-        default=0.01,
-        help=(
-            "Absolute-value dead-zone threshold for the thresholded_sign "
-            "selector transformation. Defaults to 0.01."
-        ),
-    )
-    parser.add_argument(
-        "--selector-projection-components",
-        type=int,
-        default=None,
-        help="Output dimension for selector projections that need one.",
-    )
-    parser.add_argument(
-        "--selector-projection-chunk-size",
-        type=int,
-        default=16,
-        help=(
-            "Rows per chunk for memory-conscious selector projections. "
-            "Defaults to 16."
-        ),
-    )
-    parser.add_argument(
-        "--selector-max-kmeans-feature-gb",
-        type=float,
-        default=4.0,
-        help=(
-            "Maximum unprojected k-means feature matrix size in GiB before "
-            "failing with a projection hint. Use 0 to disable the guard."
-        ),
-    )
-    parser.add_argument(
         "--selector-debug",
         action="store_true",
         help="Print selector feature/cache progress while preparing sampled data.",
@@ -208,28 +157,6 @@ def main() -> None:
                 "base_model": config.base_model,
                 "mlx_args": config.mlx_args,
                 "seed": config.mlx_args.get("seed", 42),
-                "selector_transformations": (
-                    args.selector_transformation or ["identity"]
-                ),
-                "selector_transformation_params": {
-                    "thresholded_sign": {
-                        "threshold": args.selector_thresholded_sign_threshold,
-                    }
-                },
-                "selector_projection": args.selector_projection,
-                "selector_projection_components": (
-                    args.selector_projection_components
-                ),
-                "selector_projection_chunk_size": (
-                    args.selector_projection_chunk_size
-                ),
-                "selector_max_kmeans_feature_bytes": int(
-                    args.selector_max_kmeans_feature_gb * 1024**3
-                ),
-                "shared_feature_cache_root": str(
-                    resolve_project_path(config.output_root)
-                    / "selector_feature_cache"
-                ),
                 "selector_debug": args.selector_debug,
             },
         )

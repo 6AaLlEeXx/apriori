@@ -1,0 +1,27 @@
+dataset_name: samsum
+task: samsum
+base_model: mlx-community/Llama-3.2-1B-Instruct-4bit
+data_dir: data/samsum
+adapter_path: ''
+output_root: results/kernel
+backend: lora_ntk
+target: score_delta
+seed: 42
+train_limit: 64
+valid_limit: 64
+test_limit: 2048
+kernel:
+  method: nystrom
+  ridge_lambda: 0.01
+  rank: 32
+  num_landmarks: 32
+backend_args:
+  leaf_filter: lora_b_only
+source_config:
+  data: configs/data/summarization/samsum.yaml
+  training: configs/train/summarization/samsum.yaml
+run_tags:
+- mlx-lora
+- kernel
+- generated
+notes: Generated lora_ntk score-delta kernel config for samsum.

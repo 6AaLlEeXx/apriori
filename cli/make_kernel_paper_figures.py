@@ -8,7 +8,7 @@ if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from kernel.report import collect_kernel_run_summaries
-from reporting import generate_kernel_paper_plots, markdown_plot_section
+from reporting import generate_kernel_plots, markdown_plot_section
 
 
 def _parse_experiment(value: str) -> tuple[str, str]:
@@ -43,25 +43,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         default="reports/paper/kernel",
-        help="Directory for generated SVG figures.",
+        help="Directory for generated PDF figures.",
     )
     parser.add_argument(
         "--output",
         default="reports/paper/kernel_figures.md",
-        help="Markdown file embedding the generated figures.",
+        help="Markdown file linking to the generated PDF figures.",
     )
     parser.add_argument(
         "--train-sizes",
         nargs="+",
         type=int,
-        default=[16, 256, 512],
-        help="Kernel fit-set sizes to include.",
+        default=None,
+        help="Kernel fit-set sizes to include. Defaults to all completed runs.",
     )
     parser.add_argument(
         "--features",
         nargs="+",
-        default=["raw", "thresholded_sign"],
-        help="Feature transforms to include, e.g. raw thresholded_sign.",
+        default=None,
+        help="Feature transforms to include. Defaults to all completed runs.",
     )
     parser.add_argument(
         "--adapter-contains",
@@ -76,12 +76,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--individual",
         action="store_true",
-        help="Write one vector graphic per panel instead of combined multi-panel figures.",
+        help="Write one PDF per panel instead of a combined multi-page PDF.",
     )
     parser.add_argument(
-        "--pdf",
-        action="store_true",
-        help="Also write matching PDF files next to the generated SVG files.",
+        "--plot-style",
+        choices=["paper", "standard"],
+        default="paper",
+        help=(
+            "Plot renderer to use. 'paper' preserves the exact paper-compatible "
+            "layout; 'standard' uses conventional matplotlib PDF figures."
+        ),
     )
     return parser.parse_args()
 
@@ -94,26 +98,26 @@ def main() -> None:
     ]
     output_dir = Path(args.output_dir)
     output_path = Path(args.output)
-    artifacts = generate_kernel_paper_plots(
+    artifacts = generate_kernel_plots(
         experiments,
         output_dir,
-        train_sizes=list(args.train_sizes),
-        features=list(args.features),
+        train_sizes=list(args.train_sizes) if args.train_sizes else None,
+        features=list(args.features) if args.features else None,
         adapter_contains=args.adapter_contains,
         split=args.split,
         individual=args.individual,
-        pdf=args.pdf,
+        plot_style=args.plot_style,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
-        "# Kernel Paper Figures\n"
+        f"# Kernel {args.plot_style.title()} Figures\n"
         + markdown_plot_section(
             artifacts,
             report_path=output_path,
             heading="Figures",
         )
     )
-    print(f"Wrote paper kernel figures to {output_path}")
+    print(f"Wrote {args.plot_style} kernel figures to {output_path}")
 
 
 if __name__ == "__main__":

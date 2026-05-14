@@ -66,7 +66,7 @@ def test_load_kernel_run_config_rejects_unsupported_backend(tmp_path: Path) -> N
 
 
 def test_build_kernel_run_name_includes_backend_and_limits() -> None:
-    config = load_kernel_run_config("configs/kernel/dolly_lora_ntk.yaml")
+    config = load_kernel_run_config("configs/kernel/instruction/dolly_lora_ntk.yaml")
     run_name = build_kernel_run_name(config)
     assert "dolly" in run_name
     assert "smollm2-1-7b-instruct" in run_name

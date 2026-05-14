@@ -6,11 +6,10 @@ set -euo pipefail
 # Default experiment:
 # - dataset: Dolly
 # - subset sizes: 128, 512, 2000
-# - methods: random, kmeans, kmeans+sign, kmeans+sparse_random,
-#   kmeans+sparse_random+sign
+# - method: random subset selection
 #
 # This is intentionally expensive: with the defaults it runs one full-data
-# adapter, 15 subset adapters, and kernel prediction for all trained adapters.
+# adapter, three subset adapters, and kernel prediction for all trained adapters.
 # Use PLAN_ONLY=1 to print the commands first. Use SMOKE_RUN=1 for a small
 # end-to-end check intended to finish quickly on a laptop.
 
@@ -20,21 +19,19 @@ cd "$ROOT_DIR"
 SMOKE_RUN="${SMOKE_RUN:-0}"
 if [[ "$SMOKE_RUN" == "1" ]]; then
   DEFAULT_DATASET="dolly_smoke"
-  DEFAULT_DATA_CONFIG="configs/data/dolly_smoke.yaml"
-  DEFAULT_TRAIN_CONFIG="configs/dolly_smoke.yaml"
-  DEFAULT_KERNEL_CONFIG="configs/kernel/dolly_lora_ntk_smoke.yaml"
+  DEFAULT_DATA_CONFIG="configs/data/instruction/dolly_smoke.yaml"
+  DEFAULT_TRAIN_CONFIG="configs/train/instruction/dolly_smoke.yaml"
+  DEFAULT_KERNEL_CONFIG="configs/kernel/instruction/dolly_lora_ntk_smoke.yaml"
   DEFAULT_N_VALUES="8"
-  DEFAULT_METHODS="random kmeans kmeans-sign kmeans-srp kmeans-srp-sign"
-  DEFAULT_PROJECTION_COMPONENTS="32"
+  DEFAULT_METHODS="random"
   DEFAULT_COMPARE_LIMIT="8"
 else
   DEFAULT_DATASET="dolly"
-  DEFAULT_DATA_CONFIG="configs/data/dolly.yaml"
-  DEFAULT_TRAIN_CONFIG="configs/dolly.yaml"
-  DEFAULT_KERNEL_CONFIG="configs/kernel/dolly_lora_ntk.yaml"
+  DEFAULT_DATA_CONFIG="configs/data/instruction/dolly.yaml"
+  DEFAULT_TRAIN_CONFIG="configs/train/instruction/dolly.yaml"
+  DEFAULT_KERNEL_CONFIG="configs/kernel/instruction/dolly_lora_ntk.yaml"
   DEFAULT_N_VALUES="128 512 2000"
-  DEFAULT_METHODS="random kmeans kmeans-sign kmeans-srp kmeans-srp-sign"
-  DEFAULT_PROJECTION_COMPONENTS="1024"
+  DEFAULT_METHODS="random"
   DEFAULT_COMPARE_LIMIT="0"
 fi
 
@@ -46,10 +43,6 @@ KERNEL_CONFIGS="${KERNEL_CONFIGS:-$KERNEL_CONFIG}"
 BASE_MODEL="${BASE_MODEL:-mlx-community/SmolLM2-1.7B-Instruct}"
 N_VALUES="${N_VALUES:-$DEFAULT_N_VALUES}"
 METHODS="${METHODS:-$DEFAULT_METHODS}"
-PROJECTION_COMPONENTS="${PROJECTION_COMPONENTS:-$DEFAULT_PROJECTION_COMPONENTS}"
-SELECTOR_PROJECTION_CHUNK_SIZE="${SELECTOR_PROJECTION_CHUNK_SIZE:-16}"
-SELECTOR_MAX_KMEANS_FEATURE_GB="${SELECTOR_MAX_KMEANS_FEATURE_GB:-4}"
-THRESHOLDED_SIGN_THRESHOLD="${THRESHOLDED_SIGN_THRESHOLD:-0.01}"
 COMPARE_SPLIT="${COMPARE_SPLIT:-test}"
 COMPARE_LIMIT="${COMPARE_LIMIT:-$DEFAULT_COMPARE_LIMIT}"
 PREPARE_DATA="${PREPARE_DATA:-1}"
@@ -74,6 +67,10 @@ ORCH_DIR="${ORCH_DIR:-results/orchestrations/${RUN_ID}}"
 REPORT_DIR="${REPORT_DIR:-reports/orchestrations/${RUN_ID}}"
 KERNEL_OUTPUT_ROOT="${ORCH_DIR}/kernel"
 KERNEL_CONFIG_DIR="${ORCH_DIR}/kernel_configs"
+PAPER_FIGURE_SPLIT="${PAPER_FIGURE_SPLIT:-test}"
+PAPER_FIGURE_ADAPTER_CONTAINS="${PAPER_FIGURE_ADAPTER_CONTAINS:-}"
+PAPER_FIGURE_INDIVIDUAL="${PAPER_FIGURE_INDIVIDUAL:-0}"
+PAPER_FIGURE_STYLE="${PAPER_FIGURE_STYLE:-paper}"
 
 read -r -a N_ARRAY <<< "$N_VALUES"
 if [[ "${#N_ARRAY[@]}" -eq 0 ]]; then
@@ -168,12 +165,9 @@ if [[ "$RUN_KERNEL" == "1" ]]; then
     KERNEL_COMMAND_COUNT=$((PLANNED_ADAPTER_COUNT * ${#KERNEL_TRAIN_LIMIT_ARRAY[@]} * KERNEL_CONFIG_COUNT))
   fi
 fi
-REPORT_COMMAND_COUNT=1
-if [[ "$RUN_COMPARISONS" == "1" ]]; then
-  REPORT_COMMAND_COUNT=$((REPORT_COMMAND_COUNT + 1))
-fi
+REPORT_COMMAND_COUNT=0
 if [[ "$RUN_KERNEL" == "1" ]]; then
-  REPORT_COMMAND_COUNT=$((REPORT_COMMAND_COUNT + 2))
+  REPORT_COMMAND_COUNT=1
 fi
 TOTAL_COMMANDS=$((DATA_PREP_COMMAND_COUNT + TRAIN_FULL_COMMAND_COUNT + SUBSET_TRAIN_COMMAND_COUNT + COMPARISON_COMMAND_COUNT + KERNEL_COMMAND_COUNT + REPORT_COMMAND_COUNT))
 COMMAND_INDEX=0
@@ -220,12 +214,6 @@ run_cmd() {
 method_label() {
   case "$1" in
     random) echo "random" ;;
-    kmeans) echo "kmeans" ;;
-    kmeans-sign) echo "kmeans+sign" ;;
-    kmeans-thresholded-sign) echo "kmeans+thresholded_sign" ;;
-    kmeans-srp) echo "kmeans+sparse_random" ;;
-    kmeans-srp-sign) echo "kmeans+sparse_random+sign" ;;
-    kmeans-srp-thresholded-sign) echo "kmeans+sparse_random+thresholded_sign" ;;
     *)
       echo "Unknown method suffix: $1" >&2
       return 2
@@ -236,53 +224,8 @@ method_label() {
 selector_path() {
   case "$1" in
     random) echo "selectors/random.py" ;;
-    kmeans | kmeans-sign | kmeans-thresholded-sign | kmeans-srp | kmeans-srp-sign | kmeans-srp-thresholded-sign)
-      echo "selectors/lora_ntk_kmeans.py"
-      ;;
     *)
       echo "Unknown method suffix: $1" >&2
-      return 2
-      ;;
-  esac
-}
-
-append_selector_args() {
-  local suffix="$1"
-  case "$suffix" in
-    random | kmeans)
-      ;;
-    kmeans-sign)
-      CMD+=(--selector-transformation sign)
-      ;;
-    kmeans-thresholded-sign)
-      CMD+=(
-        --selector-transformation thresholded_sign
-        --selector-thresholded-sign-threshold "$THRESHOLDED_SIGN_THRESHOLD"
-      )
-      ;;
-    kmeans-srp)
-      CMD+=(
-        --selector-projection sparse_random
-        --selector-projection-components "$PROJECTION_COMPONENTS"
-      )
-      ;;
-    kmeans-srp-sign)
-      CMD+=(
-        --selector-transformation sign
-        --selector-projection sparse_random
-        --selector-projection-components "$PROJECTION_COMPONENTS"
-      )
-      ;;
-    kmeans-srp-thresholded-sign)
-      CMD+=(
-        --selector-transformation thresholded_sign
-        --selector-thresholded-sign-threshold "$THRESHOLDED_SIGN_THRESHOLD"
-        --selector-projection sparse_random
-        --selector-projection-components "$PROJECTION_COMPONENTS"
-      )
-      ;;
-    *)
-      echo "Unknown method suffix: $suffix" >&2
       return 2
       ;;
   esac
@@ -306,10 +249,6 @@ write_manifest() {
 - Base model: \`${BASE_MODEL}\`
 - Subset sizes: \`${N_VALUES}\`
 - Methods: \`${METHODS}\`
-- Projection components: \`${PROJECTION_COMPONENTS}\`
-- Selector projection chunk size: \`${SELECTOR_PROJECTION_CHUNK_SIZE}\`
-- Selector max k-means feature GiB: \`${SELECTOR_MAX_KMEANS_FEATURE_GB}\`
-- Thresholded sign threshold: \`${THRESHOLDED_SIGN_THRESHOLD}\`
 - Compare split: \`${COMPARE_SPLIT}\`
 - Compare limit: \`${COMPARE_LIMIT}\`
 - Run comparisons: \`${RUN_COMPARISONS}\`
@@ -323,12 +262,13 @@ write_manifest() {
 - Kernel train limits: \`${KERNEL_TRAIN_LIMITS:-config default}\`
 - Kernel valid limit override: \`${KERNEL_VALID_LIMIT:-config default}\`
 - Kernel test limit override: \`${KERNEL_TEST_LIMIT:-config default}\`
-- Reports: \`${REPORT_DIR}\`
+- Paper figure style: \`${PAPER_FIGURE_STYLE}\`
+- Paper figures: \`${REPORT_DIR}\`
 
 This orchestration trains or reuses one full adapter and one subset adapter for
 each method/subset-size pair, optionally compares every subset adapter against
 the full adapter, runs kernel experiments for the configured adapter set, and
-generates Markdown reports with SVG visualizations.
+generates paper-oriented kernel figures.
 EOF
 }
 
@@ -466,8 +406,6 @@ for n in "${N_ARRAY[@]}"; do
       --base-model "$BASE_MODEL"
       --sample-selector "$selector"
       --max-examples "$n"
-      --selector-projection-chunk-size "$SELECTOR_PROJECTION_CHUNK_SIZE"
-      --selector-max-kmeans-feature-gb "$SELECTOR_MAX_KMEANS_FEATURE_GB"
     )
     if [[ "$DEBUG" == "1" ]]; then
       CMD+=(--selector-debug)
@@ -475,7 +413,6 @@ for n in "${N_ARRAY[@]}"; do
     if [[ "$SKIP_LORA_TEST" == "1" ]]; then
       CMD+=(--skip-test)
     fi
-    append_selector_args "$suffix"
     if [[ "$REUSE_EXISTING_ADAPTERS" == "1" ]] && adapter_run_complete "$subset_run"; then
       log "Skipping subset adapter training; using existing completed run ${subset_run}"
     elif [[ "$REQUIRE_EXISTING_ADAPTERS" == "1" ]]; then
@@ -546,30 +483,27 @@ else
   log "RUN_KERNEL=${RUN_KERNEL}"
 fi
 
-section "Generate reports and visuals"
-run_cmd uv run mlx-lora-make-report \
-  --output "${REPORT_DIR}/lora_runs.md"
-
-if [[ "$RUN_COMPARISONS" == "1" ]]; then
-  run_cmd uv run mlx-lora-make-adapter-comparison \
-    --output-root "$ORCH_DIR" \
-    --output "${REPORT_DIR}/adapter_comparisons.md" \
-    --assets-dir "${REPORT_DIR}/assets/adapter_comparisons"
-else
-  log "Skipping adapter comparison report; RUN_COMPARISONS=${RUN_COMPARISONS}"
-fi
-
+section "Generate paper figures"
 if [[ "$RUN_KERNEL" == "1" ]]; then
-  run_cmd uv run mlx-lora-make-kernel-report \
-    --output-root "$KERNEL_OUTPUT_ROOT" \
-    --output "${REPORT_DIR}/kernel_runs.md" \
-    --assets-dir "${REPORT_DIR}/assets/kernel"
-
-  run_cmd uv run mlx-lora-make-kernel-comparison \
-    --output-root "$KERNEL_OUTPUT_ROOT" \
-    --output "${REPORT_DIR}/kernel_comparison.md"
+  PAPER_CMD=(
+    uv run mlx-lora-make-kernel-paper-figures
+    --experiment "${DATASET}=${KERNEL_OUTPUT_ROOT}"
+    --output-dir "${REPORT_DIR}/assets/kernel_paper"
+    --output "${REPORT_DIR}/kernel_paper_figures.md"
+    --split "$PAPER_FIGURE_SPLIT"
+    --plot-style "$PAPER_FIGURE_STYLE"
+  )
+  if [[ -n "$PAPER_FIGURE_ADAPTER_CONTAINS" ]]; then
+    PAPER_CMD+=(--adapter-contains "$PAPER_FIGURE_ADAPTER_CONTAINS")
+  fi
+  if [[ "$PAPER_FIGURE_INDIVIDUAL" == "1" ]]; then
+    PAPER_CMD+=(--individual)
+  fi
+  run_cmd "${PAPER_CMD[@]}"
+else
+  log "Skipping paper figures; RUN_KERNEL=${RUN_KERNEL}"
 fi
 
 section "Done"
 log "Manifest: ${ORCH_DIR}/manifest.md"
-log "Reports: ${REPORT_DIR}"
+log "Paper figures: ${REPORT_DIR}"
