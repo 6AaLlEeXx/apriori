@@ -37,6 +37,8 @@ The remaining workflow performs:
 .
 |-- orchestrate.sh                 # end-to-end experiment runner
 |-- cli/                           # orchestrated command entrypoints
+|-- scripts/
+|   `-- orchestrate/               # shell modules sourced by orchestrate.sh
 |-- configs/
 |   |-- data/                      # raw dataset -> prepared JSONL split recipes
 |   |-- train/                     # LoRA fine-tuning configs over prepared data
@@ -58,6 +60,7 @@ Important modules:
 - `data_prep.py` prepares configured datasets into `train.jsonl`, `valid.jsonl`, and `test.jsonl`.
 - `mlops.py` resolves MLX-LM configs, run directories, metadata, and adapter summaries.
 - `kernel/run.py` scores base/adapter models, caches scores/features, fits KRR, and writes predictions.
+- `scripts/orchestrate/` splits orchestration into context/defaults, shared helpers, manifest writing, and one workflow step per shell module.
 - `reporting/plots.py` selects between the exact paper renderer and the conventional standard renderer.
 - `reporting/paper/plots.py` preserves the paper-compatible plot layout used for reproducibility.
 - `reporting/standard/` contains smaller matplotlib modules for conventional PDF figures.
