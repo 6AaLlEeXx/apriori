@@ -9,7 +9,6 @@ DEFAULT_RESULTS_ROOT = "results"
 DEFAULT_KERNEL_RESULTS_ROOT = "results/kernel"
 DEFAULT_REPORTS_ROOT = "reports"
 
-
 def project_root() -> Path:
     return PROJECT_ROOT
 

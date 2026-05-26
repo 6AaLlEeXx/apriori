@@ -494,6 +494,10 @@ def write_jsonl_records(path: str | Path, rows: list[dict[str, Any]]) -> None:
 
 
 def _load_sample_selector(selector_path: str | Path) -> Any:
+    """
+        Simple little function. Loads selector as a module in
+        'selector_path', runs some basic sanity checks.
+    """
     selector_path = resolve_existing_project_path(selector_path)
     module_name = f"lora_sample_selector_{selector_path.stem}"
     spec = importlib.util.spec_from_file_location(module_name, selector_path)
@@ -545,8 +549,8 @@ def prepare_sampled_data_dir(
         at most 'max_example' samples that are then stored
         in run_dir/data/train.jsonl
 
-        Returns the stored samples directory and some
-        metadata.
+        Returns the stored samples folder and some
+        metadata. The sampled data is in folder/train.jsonl
     """
     source_data_dir = resolve_project_path(source_data_dir)
     run_dir = Path(run_dir)
@@ -555,7 +559,7 @@ def prepare_sampled_data_dir(
 
     train_path = source_data_dir / "train.jsonl"
     if not train_path.exists():
-        raise FileNotFoundError(f"Training split not found: {train_path}")
+        raise FileNotFoundError(f"Prepare sample data => Training split not found: {train_path}")
     for split in ("valid", "test"):
         split_path = source_data_dir / f"{split}.jsonl"
         if split_path.exists():

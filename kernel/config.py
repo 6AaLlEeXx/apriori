@@ -163,6 +163,7 @@ def save_kernel_run_config(config: KernelRunConfig, path: str | Path) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = config.to_dict()
+    
     if path.suffix.lower() in {".yaml", ".yml"}:
         if yaml is None:
             raise RuntimeError(

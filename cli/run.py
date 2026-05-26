@@ -191,6 +191,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print selector feature/cache progress while preparing sampled data.",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Do you want to chat with me? >'_'<. If you pass me 1 we can talk!",
+    )
     return parser.parse_args()
 
 
@@ -205,7 +210,11 @@ def main() -> None:
     train_data_dir = config.data_dir
     sampling_meta = None
     subset_training_meta = None
+    verbose = args.verbose
+    
+    if verbose: print("Verbose mode ACTIVATED...")
     if args.sample_selector:
+        if verbose: print("We cooking some selectors here...")
         train_data_dir, sampling_meta = prepare_sampled_data_dir(
             source_data_dir=config.data_dir,
             run_dir=paths.run_dir,
@@ -240,6 +249,7 @@ def main() -> None:
                 "selector_debug": args.selector_debug,
             },
         )
+        if verbose: print("Nicely done!")
         if args.selector_debug:
             print(
                 "[selector] selected "
@@ -311,6 +321,8 @@ def main() -> None:
 
     status = "completed" if train_exit_code == 0 else "failed"
     test_exit_code: int | None = None
+
+    if verbose and status=="failed": print("Bro, we've failed!...")
 
     if train_exit_code == 0 and config.test_after_train and not args.skip_test:
         test_command = build_test_command(config, paths, data_dir=train_data_dir)

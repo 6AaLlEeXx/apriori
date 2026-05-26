@@ -14,6 +14,7 @@ from transformations import (
     normalize_transformation_names,
     normalize_transformation_params,
 )
+
 from kernel.config import (
     KernelRunConfig,
     KernelRunPaths,
@@ -953,7 +954,6 @@ def run_kernel_experiment(
         status="running",
     )
     write_json(paths.metadata_path, metadata)
-
     records = _load_split_records(runtime_config)
 
     score_rows: dict[str, list[dict[str, Any]]] = {}

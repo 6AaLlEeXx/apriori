@@ -2,6 +2,7 @@
   "include": [
     "cli",
     "kernel",
+    "estimator",
     "selectors",
     "projection",
     "reporting",
