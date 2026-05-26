@@ -7,7 +7,6 @@ import re
 
 from paths import (
     resolve_existing_project_path,
-    resolve_project_path,
 )
 
 try:
@@ -16,7 +15,6 @@ except ImportError:
     yaml = None
 
 
-SUPPORTED_KERNEL_BACKENDS = {"lora_ntk"}
 EXTENDS_KEY = "extends"
 
 
