@@ -89,7 +89,7 @@ def get_dataset_key(data_dir: str | Path) -> str:
     if not data_dir.is_dir():
         raise ValueError(f"Data directory is not a directory: {data_dir}")
     
-    records = load_pair_split(data_dir, "data_key_data")
+    records = load_pair_split(data_dir/"train.jsonl", "data_key_data")
     key = _records_payload(records)
     
     return key

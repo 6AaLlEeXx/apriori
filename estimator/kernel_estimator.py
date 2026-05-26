@@ -33,6 +33,7 @@ from estimator.kernel_caching import (
     write_cache_meta,
 )
 from estimator.extractor import FeatureExtractor, representor_parameters_from_backend
+from kernel.run import _feature_transform_names, _feature_transform_params
 
 KRR = DualKRRModel | NystromKRRModel
 
@@ -216,10 +217,56 @@ def get_kernel_out_path(key: str) -> Path:
     out_path = resolve_project_path(DEFAULT_KERNEL_OUT_PATH)/key
     return out_path
 
+SUPPORTED_TRANSFORMS = {"identity", "sign", "threshlded_sign"}
 
-def get_estimator(card: lora_ft_JobCard, kernel_config: KernelRunConfig, translator: str | None = None):
-    resolved_card, _ = standard_lora_job_card(card, generate_apriori_lora_key(card))
-    lora_key = resolved_card.run_name
+def is_translator_a_feature_trasformation(translator_name: str)->bool:
+    return True
+
+def normalize_name(name: str | None)->str:
+    if name is None:
+        return ""
+    return name.lower().strip().replace("-", "_")
+
+
+def standardize_kernel_backend_args(config: KernelRunConfig)->KernelRunConfig:
+    names = _feature_transform_names(config)
+    if len(names) > 1:
+        raise ValueError("Chained transformations are not supported. Stop it!")
+    if len(names)==0:
+        config.backend_args = {"leaf_filter": "lora_b_only"}
+    if len(names)==1:
+        new_args = {"leaf_filter": config.backend_args.get("leaf_filter", "lora_b_only")}
+        params = _feature_transform_params(config).get(names[0],None)
+        if params is not None:
+            new_args.update(params)
+        config.backend_args = new_args
+    return config
+
+SUPPORTED_REPRESENTORS = {"identity", "sign", "threshlded_sign","float32", "float64", "sign_int8", "sign_int16", "sign_int32", "sign_int64"}
+USERDEFINED_ARGS = {"thresholded_sign": {"threshold"}, "sign_int8": {"dim"}, "sign_int16": {"dim"}, "sign_int32": {"dim"}, "sign_int64": {"dim"}}
+
+def unpack_translator_context(context: dict[str, Any])->tuple[str,dict[str,Any]]:
+    if not set(context.keys())=={"name", "parameters"}:
+        raise ValueError("Unexpected translator context! I'm so surprised!!!")
+    name = normalize_name(context.get("name", None))
+    parameters = context.get("parameters", None)
+    if not isinstance(parameters,dict):
+        raise TypeError("Parameters must be a dictionary")
+
+    if not name in SUPPORTED_REPRESENTORS:
+        raise ValueError(f"We don't support {name} representor")
+    req = USERDEFINED_ARGS.get(name, {})
+    if not set(parameters.keys()).issubset(req):
+        raise ValueError(f"Missing parameters for {name} representor")
+    resolved_parameters = {k:v for k,v in parameters.items() if k in req}
+
+    return name, resolved_parameters
+
+
+
+def get_estimator(card: lora_ft_JobCard, kernel_config: KernelRunConfig, translator: str | None = None)-> KenerelEstimatorCard:
+    lora_key = generate_apriori_lora_key(card)
+    resolved_card, _ = standard_lora_job_card(card, lora_key)
     adapter_path = get_adapter_path_from_lora_key(lora_key, existing=False)
     run_path = get_run_dir_from_lora_key(lora_key, existing=False)
 
@@ -322,7 +369,7 @@ def estimate_loss(payload: KernelEsimatorPayload,
                            adapter_path=adapter_path,
                            storage_type=storage_type,
                            computed_idx=[],
-                           representor_args=representor_parameters_from_backend(transform_name, backend),
+                           representor_args=representor_parameters_from_backend(storage_type, backend),
                            )
         compare_cache(meta_a, meta_b, error_log=f"Cache key: {key}", success_log=f"Cache key: {key}")
     else:
@@ -335,7 +382,7 @@ def estimate_loss(payload: KernelEsimatorPayload,
             model = model,
             adapter_path = adapter_path,
             storage_type = storage_type,
-            representor_args = representor_parameters_from_backend(transform_name, backend),
+            representor_args = representor_parameters_from_backend(storage_type, backend),
         ))
 
     _prepare_cache_matrix(get_cache_matrix_path(key), expected_feature_d=dim, expected_records_n=len(records))

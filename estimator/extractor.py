@@ -18,15 +18,17 @@ class FeatureExtractor:
             raise ValueError("Multiple transformations are not supported.")
         self.transform_name: str = transform_name[0]
 
-        self.transform_params: dict[str, dict[str, Any]] = _feature_transform_params(config)
+        self.transform_params: dict[str, Any] = _feature_transform_params(config).get(self.transform_name, {})
 
     def extract_feature(self, record: PairRecord) -> NDArray:
         feature = self.backend.extract_feature(record).reshape((1,-1))
-        transformed = apply_transformations(feature, [self.transform_name], self.transform_params)
+        transformed = apply_transformations(feature, [self.transform_name], {self.transform_name: self.transform_params})
+        dim = transformed.shape[1]
         if self.dim is None:
-            self.dim = transformed.shape[1]
-        elif self.dim != transformed.shape[1]:
-            raise ValueError(f"Extracted feature dimension {transformed.shape[1]} does not match expected dimension {self.dim}")
+            self.dim = dim
+        elif self.dim != dim:
+            raise ValueError(f"Extracted feature dimension {dim} does not match expected dimension {self.dim}")
+        
         return transformed.reshape(-1)
     
     def get_backend_statistics(self)-> dict[str, Any]:

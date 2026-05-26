@@ -10,8 +10,8 @@ from estimator.representor import resolve_representor
 from estimator.extractor import FeatureExtractor
 
 COMPATIBLE_TRANSFORMS = {"identity": {"float32", "float64"},
-                         "sign": {"sign_int8","sign_int16","sign_int32","sign_int64"},
-                         "thresholded_sign": {"sign_int8","sign_int16","sign_int32","sign_int64"}}
+                         "sign": {"float32", "float64","sign_int8","sign_int16","sign_int32","sign_int64"},
+                         "thresholded_sign": {"float32", "float64","sign_int8","sign_int16","sign_int32","sign_int64"}}
 
 
 def _prepare_cache_matrix(
@@ -172,7 +172,7 @@ class CacheMeta:
       
       if self.feature_transform_name == "thresholded_sign":
          if self.feature_transform_params is None or self.feature_transform_params.get("threshold", None) is None:
-            raise ValueError("Must set the threshold value")
+            raise ValueError(f"Must set the threshold value. But got {self.feature_transform_params} instead")
       if self.storage_type not in STORAGE_TYPES:
          raise ValueError(f"Unsupported storage type {self.storage_type}. Only support: {STORAGE_TYPES}")
          

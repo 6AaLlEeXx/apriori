@@ -14,4 +14,12 @@ results/*
 reports/*
 !reports/.gitkeep
 
+estimator/configs
+
+estimator/feature_cache
+
+estimator/kernels
+
+estimator/lora_models
+
 **/TEST*
