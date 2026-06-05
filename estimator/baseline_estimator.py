@@ -8,7 +8,7 @@ from kernel.scoring import score_pair
 from estimator.jobs import (
                             fine_tune_on_random_subset, 
                             lora_ft_JobCard, 
-                            standard_lora_job_card,
+                            prepare_lora_job_card,
                             load_pair_idx,
                             _validate_lora_key,
                             get_adapter_path_from_lora_key,
@@ -81,7 +81,7 @@ class BaselineEstimator:
 
 def get_estimator_from_jobcard(card: lora_ft_JobCard):
     lora_key = generate_apriori_lora_key(card)
-    resolved_card, _ = standard_lora_job_card(card, lora_key)
+    resolved_card, _ = prepare_lora_job_card(card, lora_key)
     adapter_path = get_adapter_path_from_lora_key(lora_key, existing=False)
     run_path = get_run_dir_from_lora_key(lora_key, existing=False)
     

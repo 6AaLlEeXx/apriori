@@ -30,24 +30,3 @@ class FeatureExtractor:
             raise ValueError(f"Extracted feature dimension {dim} does not match expected dimension {self.dim}")
         
         return transformed.reshape(-1)
-    
-    def get_backend_statistics(self)-> dict[str, Any]:
-        return {"transform_name":self.transform_name, "dim": self.dim}
-
-def representor_parameters_from_backend(representor: str, backend: FeatureExtractor)-> dict[str, Any]:
-    dim = backend.get_backend_statistics().get("dim", None)
-    transform_name = backend.get_backend_statistics().get("transform_name", "").strip().lower().replace("-", "_")
-
-    if transform_name == "" or dim is None or dim <= 0 or transform_name not in {"sign", "thresholded_sign", "identity"}:
-        raise ValueError(f"Invalid backend for representor {representor}")
-
-    normalized_representor = representor.strip().lower().replace("-", "_")
-    if normalized_representor.startswith("sign_int") and transform_name not in {"sign", "thresholded_sign"}:
-        raise ValueError(f"SignIntRepresentor is not compatible with {backend.transform_name} transformation")
-    if normalized_representor in {"sign_int8", "sign_int16", "sign_int32", "sign_int64"}:
-        prms = {"dim": dim}
-    elif normalized_representor in {"float32", "float64"}:
-        prms = {}
-    else:
-        raise ValueError(f"Unsupported representor type {representor}")
-    return prms

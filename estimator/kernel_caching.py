@@ -9,9 +9,10 @@ from kernel.data import PairRecord
 from estimator.representor import resolve_representor
 from estimator.extractor import FeatureExtractor
 
-COMPATIBLE_TRANSFORMS = {"identity": {"float32", "float64"},
-                         "sign": {"float32", "float64","sign_int8","sign_int16","sign_int32","sign_int64"},
-                         "thresholded_sign": {"float32", "float64","sign_int8","sign_int16","sign_int32","sign_int64"}}
+COMPATIBLE_TRANSFORMS = {"identity": {"multitransform", "float32", "float64", "sign_transform", "thresholded_sign_transform"},
+                         "sign": {"multitransform", "float32", "float64","sign_int8","sign_int16","sign_int32","sign_int64"},
+                         "thresholded_sign": {"multitransform", "float32", "float64","sign_int8","sign_int16","sign_int32","sign_int64"},
+                }
 
 
 def _prepare_cache_matrix(
@@ -100,44 +101,40 @@ def _fetch_features_by_idx(
         raise ValueError("Cannot extract features for an empty split.")
 
     records_idx = [idx for idx, _ in records]
-    pairrecords = [record for _, record in records]
+    idx_to_pairrecord = {idx : record for idx, record in records}
 
     cached = open_cache_matrix(features_path)
     meta = get_cache_meta(meta_path)
 
     representor = resolve_representor(
-                                      name =  meta.storage_type,
+                                      name =  meta.representor_name,
                                       **meta.representor_args,
                                     )
 
-    if not representor.name in COMPATIBLE_TRANSFORMS[backend.transform_name]:
-        raise ValueError(f"Storring type '{representor.name}' and transformation '{backend.transform_name}' are not compatible")
+    if not representor.init_name in COMPATIBLE_TRANSFORMS[backend.transform_name]:
+        raise ValueError(f"Storring type '{representor.init_name}' and transformation '{backend.transform_name}' are not compatible")
 
-    computed = set(meta.computed_idx)
-    fetched = cached[records_idx]
-    resolved_fetched = []
+    ready_idx = set(meta.computed_idx)
+    missing_idx = list(set(records_idx) - ready_idx)
+    missing_idx.sort()
+    missing_records = [idx_to_pairrecord[idx] for idx in missing_idx]
+    print(f"Features for records at indices: {missing_idx} are not cached, extracting...")
 
-    for idx, f in enumerate(fetched):
-        missing_idx = None
-
-        if idx not in computed:
-            print(f"Features for record {records_idx[idx]} are not cached, extracting...")
-            missing_idx = records_idx[idx]
-            missing_record = pairrecords[idx]
-            feature = backend.extract_feature(missing_record)
-            cached[missing_idx] = representor.forward(feature)
-            resolved_fetched.append(feature)
-            computed.add(missing_idx)
-        else:
-            resolved_fetched.append(representor.inverse(f))
+    write_to_memory = [representor.forward(backend.extract_feature(record)) for record in missing_records]
+    
+    for idx, vector in zip(missing_idx, write_to_memory):
+        cached[idx] = vector
+        ready_idx.add(idx)
    
-    update_cache_meta(meta_path, computed_idx=list(computed))
+    update_cache_meta(meta_path, computed_idx=list(ready_idx))
+
+    resolved_fetched = [representor.inverse(cached[idx]) for idx in records_idx]
     
     del cached
     return np.stack(resolved_fetched)
 
 
-STORAGE_TYPES = {"float32", "float64", 
+STORAGE_TYPES = {"multitransform", "float32", "float64", 
                  "sign_int8", "sign_int16", "sign_int32", "sign_int64"}
 
 @dataclass
@@ -149,7 +146,7 @@ class CacheMeta:
    feature_dim: int
    model: str = "mlx-community/SmolLM2-1.7B-Instruct"
    adapter_path: str = ""
-   storage_type: str = "float32"
+   representor_name: str = "float32"
    computed_idx: list[int] = field(default_factory=list)
 
    representor_args: dict[str, Any] = field(default_factory=dict)
@@ -173,22 +170,27 @@ class CacheMeta:
       if self.feature_transform_name == "thresholded_sign":
          if self.feature_transform_params is None or self.feature_transform_params.get("threshold", None) is None:
             raise ValueError(f"Must set the threshold value. But got {self.feature_transform_params} instead")
-      if self.storage_type not in STORAGE_TYPES:
-         raise ValueError(f"Unsupported storage type {self.storage_type}. Only support: {STORAGE_TYPES}")
+      if self.representor_name not in STORAGE_TYPES:
+         raise ValueError(f"Unsupported storage type {self.representor_name}. Only support: {STORAGE_TYPES}")
          
+SUPPORTED_TRANSFORMS = {"identity", "sign", "threshlded_sign"}
+
 def compare_cache(first: CacheMeta, other: CacheMeta, error_log: str="", success_log: str=""):
-   if first.feature_transform_name != other.feature_transform_name or first.feature_transform_params != other.feature_transform_params:
-        print(f"Feature transform configuration has changed since the cache was created. {error_log}")
-   elif first.num_records != other.num_records or first.feature_dim != other.feature_dim:
-         print(f"Data configuration has changed since the cache was created. {error_log}")
-   elif first.model != other.model or first.adapter_path != other.adapter_path:
-         print(f"Model configuration has changed since the cache was created. {error_log}")
-   elif first.storage_type != other.storage_type:
-         print(f"Storage type has changed since the cache was created. {error_log}")
-   elif first.representor_args != other.representor_args:
-         print(f"Representor configuration has changed since the cache was created. {error_log}")
-   else:
-         print(f"Cache is up to date. {success_log}")
+   
+    if not first.representor_name == "multitransform" or not other.representor_name == "multitransform":
+        if first.representor_name != other.representor_name:
+            raise ValueError(f"Storage type has changed since the cache was created. {error_log}")
+        if first.representor_args != other.representor_args:
+            raise ValueError(f"Representor configuration has changed since the cache was created. {error_log}")
+        
+    if first.feature_transform_name != other.feature_transform_name or first.feature_transform_params != other.feature_transform_params:
+        raise ValueError(f"Feature transform configuration has changed since the cache was created. {error_log}")
+    if first.num_records != other.num_records or first.feature_dim != other.feature_dim:
+        raise ValueError(f"Data configuration has changed since the cache was created. {error_log}")
+    if first.model != other.model or first.adapter_path != other.adapter_path:
+        raise ValueError(f"Model configuration has changed since the cache was created. {error_log}")
+
+    print(f"Cache is up to date. {success_log}")
 
 def write_cache_meta(path: Path | str, meta: CacheMeta):
     path = Path(path)

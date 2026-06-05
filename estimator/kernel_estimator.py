@@ -1,25 +1,24 @@
 from __future__ import annotations
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Any
 import numpy as np
-import hashlib
 import json
 from numpy.typing import NDArray
 
-from estimator.keys import generate_apriori_lora_key, get_kernel_run_key, get_kernel_estimator_key, kernelANDdataset_key
+from estimator.keys import generate_apriori_lora_key, get_kernel_run_key, combined_key, generate_lora_init_key, get_backend_key
 from paths import resolve_project_path
 
 from kernel.data import PairRecord
 from kernel.config import save_kernel_run_config, load_kernel_run_config
-from kernel.run import _predict_split, KernelRunConfig
+from kernel.run import _predict_split, KernelRunConfig, validate_kernel_run_inputs
 from kernel.krr import NystromKRRModel, DualKRRModel
 
 from estimator.jobs import (
                             get_adapter_path_from_lora_key, 
                             get_run_dir_from_lora_key, 
                             get_data_train_path_from_lora_key, 
-                            standard_lora_job_card, 
+                            prepare_lora_job_card, 
                             lora_ft_JobCard, 
                             fine_tune_on_random_subset, 
                             _instantiate_kernel,
@@ -32,10 +31,15 @@ from estimator.kernel_caching import (
     CacheMeta, _prepare_cache_matrix, 
     write_cache_meta,
 )
-from estimator.extractor import FeatureExtractor, representor_parameters_from_backend
+from estimator.extractor import FeatureExtractor#, representor_parameters_from_backend
 from kernel.run import _feature_transform_names, _feature_transform_params
+from estimator.representor import FeatureRepresentor, resolve_representor
 
 KRR = DualKRRModel | NystromKRRModel
+
+
+def green_bold_print(text: str):
+    print(f"\033[1;32m{text}\033[0m")
 
 
 @dataclass
@@ -53,11 +57,12 @@ class KenerelEstimatorCard:
     weights_path: str | Path
     estimator_key: str
     lora_key: str
+    lora_init_key: str
 
     output_root: str | Path
     data_dir: str | Path
 
-    translator: str | None = None
+    translator: dict[str, Any] = field(default_factory=lambda: {"name": "float32", "parameters": {}})
 
     def to_dict(self)->dict[str, Any]:
         iamdict = asdict(self)
@@ -72,12 +77,12 @@ class KenerelEstimatorCard:
 @dataclass
 class KernelEsimatorPayload:
     backend: FeatureExtractor
+    representor: FeatureRepresentor
     config: KernelRunConfig
     model: KRR
     payload: dict[str, Any]
     train_features: NDArray
-    key: str
-    translator: str | None = None
+    backend_key: str
 
 
 def _save_train_features_as_npy(features: NDArray, path: Path | str) -> None:
@@ -141,7 +146,7 @@ def _load_model(path: Path | str) -> dict[str, Any]:
 
     context = json.loads(payload_path.read_text())
     if not isinstance(context, dict):
-        raise ValueError(f"Unexpected payload format in {payload_path}")
+        raise ValueError(f"Unexpected payload format in {payload_path}. Context must be a dictionary.")
 
     method = context.get("method", None)
     if method is None:
@@ -228,22 +233,34 @@ def normalize_name(name: str | None)->str:
     return name.lower().strip().replace("-", "_")
 
 
-def standardize_kernel_backend_args(config: KernelRunConfig)->KernelRunConfig:
+def prepare_kernel_config(config: KernelRunConfig)->KernelRunConfig:
     names = _feature_transform_names(config)
     if len(names) > 1:
         raise ValueError("Chained transformations are not supported. Stop it!")
     if len(names)==0:
         config.backend_args = {"leaf_filter": "lora_b_only"}
     if len(names)==1:
-        new_args = {"leaf_filter": config.backend_args.get("leaf_filter", "lora_b_only")}
-        params = _feature_transform_params(config).get(names[0],None)
-        if params is not None:
-            new_args.update(params)
-        config.backend_args = new_args
+        args = {"leaf_filter": config.backend_args.get("leaf_filter", "lora_b_only")}
+        params = _feature_transform_params(config).get(names[0],{})
+        name = normalize_name(names[0])
+        if name == "identity":
+            args["feature_transform"] = "identity"
+            config.backend_args = args
+        elif name == "sign":
+            args["feature_transform"] = "sign"
+            config.backend_args = args
+        elif name == "thresholded_sign":
+            args["feature_transform"] = "thresholded_sign"
+            args["threshold"] = params.get("threshold", 0.)
+            config.backend_args = args
+        else:
+            raise ValueError(f"Unsupported transformation name: {name}")
+        
     return config
 
-SUPPORTED_REPRESENTORS = {"identity", "sign", "threshlded_sign","float32", "float64", "sign_int8", "sign_int16", "sign_int32", "sign_int64"}
-USERDEFINED_ARGS = {"thresholded_sign": {"threshold"}, "sign_int8": {"dim"}, "sign_int16": {"dim"}, "sign_int32": {"dim"}, "sign_int64": {"dim"}}
+
+SUPPORTED_REPRESENTORS = {"multitransform", "float32", "float64", "sign_int8", "sign_int16", "sign_int32", "sign_int64"}
+USERDEFINED_ARGS = {}
 
 def unpack_translator_context(context: dict[str, Any])->tuple[str,dict[str,Any]]:
     if not set(context.keys())=={"name", "parameters"}:
@@ -263,10 +280,18 @@ def unpack_translator_context(context: dict[str, Any])->tuple[str,dict[str,Any]]
     return name, resolved_parameters
 
 
+def validate_translator_context(translator: dict[str, Any]):
+    return unpack_translator_context(translator)
 
-def get_estimator(card: lora_ft_JobCard, kernel_config: KernelRunConfig, translator: str | None = None)-> KenerelEstimatorCard:
+
+def get_estimator(card: lora_ft_JobCard, kernel_config: KernelRunConfig, translator: dict[str, Any] = {"name": "float32", "parameters": {}})-> KenerelEstimatorCard:
+    #validation and data preparation
+    kernel_config = prepare_kernel_config(kernel_config)
+    validate_translator_context(translator)
     lora_key = generate_apriori_lora_key(card)
-    resolved_card, _ = standard_lora_job_card(card, lora_key)
+    lora_init_key = generate_lora_init_key(card)
+    resolved_card, _ = prepare_lora_job_card(card, lora_key)
+
     adapter_path = get_adapter_path_from_lora_key(lora_key, existing=False)
     run_path = get_run_dir_from_lora_key(lora_key, existing=False)
 
@@ -278,7 +303,7 @@ def get_estimator(card: lora_ft_JobCard, kernel_config: KernelRunConfig, transla
         fine_tune_on_random_subset(resolved_card)
 
     kernel_key = get_kernel_run_key(kernel_config)
-    estimator_key = get_kernel_estimator_key(lora_key, kernel_key)
+    estimator_key = combined_key(lora_key=lora_key, kernel_key=kernel_key)
 
     weight_path = get_kernel_weights_path(estimator_key)
     kernel_config.adapter_path = str(adapter_path)
@@ -286,6 +311,7 @@ def get_estimator(card: lora_ft_JobCard, kernel_config: KernelRunConfig, transla
     kernel_config.data_dir = str(get_data_train_path_from_lora_key(lora_key))
     save_kernel_run_config(kernel_config, kernel_path)
     kernel_config.output_root = str(get_kernel_out_path(estimator_key))
+    validate_kernel_run_inputs(kernel_config)
 
     if weight_path.exists():
         print("Found a precomputed kernel. Loading")
@@ -303,17 +329,30 @@ def get_estimator(card: lora_ft_JobCard, kernel_config: KernelRunConfig, transla
                                 kernel_config_path=kernel_path,
                                 weights_path=weight_path,
                                 lora_key=lora_key,
+                                lora_init_key=lora_init_key,
                                 estimator_key=estimator_key,
                                 output_root=str(get_kernel_out_path(estimator_key)),
                                 data_dir=str(get_data_train_path_from_lora_key(lora_key)),
-                                translator = translator,
+                                translator=translator,
     )
 
 
 def prepare_estimator(card: KenerelEstimatorCard):
-    kernel_config = load_kernel_run_config(resolve_project_path(card.kernel_config_path))
-    backend = FeatureExtractor(kernel_config)
+    kernel_config = prepare_kernel_config(load_kernel_run_config(card.kernel_config_path))
+    validate_kernel_run_inputs(kernel_config)
+    validate_translator_context(card.translator)
+
     kernel_payload = _load_model(card.weights_path)
+    translator_name, params = unpack_translator_context(card.translator)
+    params.update(kernel_config.backend_args)
+    representor = resolve_representor(translator_name, **params)
+
+    backend_args = kernel_config.backend_args
+    if translator_name == "multitransform":
+        kernel_config.backend_args = {"leaf_filter" : kernel_config.backend_args.get("leaf_filter", "lora_b_only")}
+    backend = FeatureExtractor(kernel_config)
+    backend_key = combined_key(lora_init_key=card.lora_init_key, backend_key=get_backend_key(kernel_config))
+    kernel_config.backend_args = backend_args
 
     payload = KernelEsimatorPayload(
         backend=backend,
@@ -321,19 +360,11 @@ def prepare_estimator(card: KenerelEstimatorCard):
         model=kernel_payload["model"],
         payload=kernel_payload["payload"],
         train_features=kernel_payload["train_features"],
-        key = card.estimator_key,
-        translator=card.translator,
+        backend_key = backend_key,
+        representor = representor,
     )
 
     return payload
-
-
-def resolve_default_starage_type(feature_transform_name: str) -> str:
-    DEFAUL_STORAGE_TYPES = {"identity" : "float32", "sign" : "sign_int8", "threshlded_sign" : "sign_int8"}
-
-    store_type = DEFAUL_STORAGE_TYPES.get(feature_transform_name, "float32")
-    
-    return store_type
 
 
 def estimate_loss(payload: KernelEsimatorPayload, 
@@ -343,6 +374,7 @@ def estimate_loss(payload: KernelEsimatorPayload,
     
     config = payload.config
     backend = payload.backend
+    representor = payload.representor
     fitted_model = payload.model
     fit_payload = payload.payload
     train_features = payload.train_features
@@ -350,13 +382,13 @@ def estimate_loss(payload: KernelEsimatorPayload,
     adapter_path = config.adapter_path
     transform_name = backend.transform_name
     transform_params = backend.transform_params
-    storage_type = payload.translator if payload.translator is not None else resolve_default_starage_type(transform_name)
 
-    if any([v is None for v in backend.get_backend_statistics().values()]):
-        backend.extract_feature(records[0][1])
-    dim = backend.get_backend_statistics().get("dim", 0)
+    if not representor.ready or backend.dim is None:
+        representor.fit(backend.extract_feature(records[0][1]))
+    dim = backend.dim if backend.dim is not None else 0
 
-    key = kernelANDdataset_key(payload.key, storage_type, dataset.key)
+    key = combined_key(backend_key=payload.backend_key, representor_key=representor.get_key(), dataset_key=dataset.key)
+    green_bold_print(key)
 
     if get_cache_meta_path(key).exists():
         meta_a = get_cache_meta(get_cache_meta_path(key))
@@ -367,23 +399,23 @@ def estimate_loss(payload: KernelEsimatorPayload,
                            feature_dim=dim,
                            model=model,
                            adapter_path=adapter_path,
-                           storage_type=storage_type,
+                           representor_name=representor.init_name,
                            computed_idx=[],
-                           representor_args=representor_parameters_from_backend(storage_type, backend),
+                           representor_args=representor.args,
                            )
         compare_cache(meta_a, meta_b, error_log=f"Cache key: {key}", success_log=f"Cache key: {key}")
-    else:
-        write_cache_meta(get_cache_meta_path(key), CacheMeta(
-            key = key,
-            feature_transform_name = transform_name,
-            feature_transform_params = transform_params,
-            num_records = len(records),
-            feature_dim = dim,
-            model = model,
-            adapter_path = adapter_path,
-            storage_type = storage_type,
-            representor_args = representor_parameters_from_backend(storage_type, backend),
-        ))
+
+    write_cache_meta(get_cache_meta_path(key), CacheMeta(
+        key = key,
+        feature_transform_name = transform_name,
+        feature_transform_params = transform_params,
+        num_records = len(records),
+        feature_dim = dim,
+        model = model,
+        adapter_path = adapter_path,
+        representor_name = representor.init_name,
+        representor_args = representor.args,
+    ))
 
     _prepare_cache_matrix(get_cache_matrix_path(key), expected_feature_d=dim, expected_records_n=len(records))
     features = _fetch_features_by_idx(get_cache_meta_path(key),get_cache_matrix_path(key), records, backend)

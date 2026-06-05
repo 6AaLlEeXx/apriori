@@ -145,6 +145,9 @@ def get_kernel_run_key(config: KernelRunConfig) -> str:
     data_path = resolve_project_path(config.data_dir)/"train.jsonl"
     if not data_path.exists():
         raise FileNotFoundError(f"No training data path found at {data_path}")
+    records = load_pair_split(data_path, "train")
+    records_key = _records_payload(records)
+
     
     specs = ""
     for key in GET_KERNEL_SPECS:
@@ -158,26 +161,32 @@ def get_kernel_run_key(config: KernelRunConfig) -> str:
         specs = f"{specs}; {key}={payload}"
     specs_key = hashlib.sha256(specs.encode("utf-8")).hexdigest()
 
-    records = load_pair_split(data_path, "train")
-    records_key = _records_payload(records)
-
     key = hashlib.sha256(f"{specs_key}_{records_key}".encode("utf-8")).hexdigest()
 
     return key
 
 
-def get_kernel_estimator_key(lora_key: str, kernel_key: str) -> str:
-    if lora_key.strip() == "" or kernel_key.strip() == "":
-        raise ValueError("Lora key and kernel key must be provided")
-    combined = f"{lora_key}_{kernel_key}"
-    return hashlib.sha256(combined.encode("utf-8")).hexdigest()
+def get_backend_key(config: KernelRunConfig) -> str:
+    GET_KERNEL_SPECS = ["backend", "backend_args"]
 
-ALLOWED_STORAGE_TYPES = {"float32", "sign_int8", "float64", "sign_int16", "sign_int32", "sign_int64"}
+    dict_config = config.to_dict()
+    
+    specs = ""
+    for key in GET_KERNEL_SPECS:
+        val = dict_config.get(key, None)
+        if val is None:
+            raise ValueError(f"Some information is missing: {key}")
+        if isinstance(val, dict):
+            payload = _json_hash(val)
+        else:
+            payload = f"{val}"
+        specs = f"{specs}; {key}={payload}"
 
-def kernelANDdataset_key(kernel_key: str, storage_type: str, dataset_key: str) -> str:
-    if kernel_key.strip() == "" or dataset_key.strip() == "":
-        raise ValueError("Kernel key and dataset key must be provided")
-    if storage_type not in ALLOWED_STORAGE_TYPES:
-        raise ValueError(f"Unsupported storage type: {storage_type}")
-    combined = f"{kernel_key}_{storage_type}_{dataset_key}"
-    return hashlib.sha256(combined.encode("utf-8")).hexdigest()
+    return hashlib.sha256(specs.encode("utf-8")).hexdigest()
+
+
+def combined_key(**keys)->str:
+    key = ""
+    for k, v in keys.items():
+        key = f"{key}{k}={v};"
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()

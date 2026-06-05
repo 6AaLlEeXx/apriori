@@ -448,7 +448,7 @@ def _instantiate_kernel(
 def get_lora_config_path_from_lora_key(lora_key: str) -> Path:
     return resolve_project_path(DEFAULT_CONFIGS_ROOT)/f"{lora_key}.yaml"
 
-def standard_lora_job_card(card: lora_ft_JobCard, lora_key: str) -> tuple[lora_ft_JobCard, LoraRunConfig]:
+def prepare_lora_job_card(card: lora_ft_JobCard, lora_key: str) -> tuple[lora_ft_JobCard, LoraRunConfig]:
     config = lora_run_config_from_lora_job_card(card)
     hash_name = lora_key
 
