@@ -331,6 +331,8 @@ def fine_tune_on_random_subset(args: lora_ft_JobCard) -> tuple[LoraRunConfig,Run
     
     return config, paths
 
+def red_bold_print(msg: str):
+    print(f"\033[1m\033[91m{msg}\033[0m")
 
 def _score_with_cache(
     config: KernelRunConfig,
@@ -348,19 +350,17 @@ def _score_with_cache(
     )
     cached = _load_cached_scores(cache_path, records)
     if cached is not None:
-        _cache_log(f"score hit model={label} split=train path={cache_path}")
+        print(f"[Score Cache] Precomputed score found, path={cache_path}")
         train_rows = cached
     else:
-        _cache_log(f"score miss model={label} split=train path={cache_path}")
+        red_bold_print(f"[Score Cache] Missing precomputed scores, path={cache_path}")
 
         scorer = scorer_factory(config.base_model, adapter_path)
         
         rows = _score_records(scorer, records)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         _write_jsonl(cache_path, rows)
-        _cache_log(
-            f"score written model={label} split=train path={cache_path}"
-        )
+        print(f"[Score Cache] Score computed and written to path={cache_path}")
         train_rows = rows
 
         del scorer

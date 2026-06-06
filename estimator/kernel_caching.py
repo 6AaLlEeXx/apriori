@@ -113,12 +113,17 @@ def _fetch_features_by_idx(
 
     if not representor.init_name in COMPATIBLE_TRANSFORMS[backend.transform_name]:
         raise ValueError(f"Storring type '{representor.init_name}' and transformation '{backend.transform_name}' are not compatible")
+    print(f"[Feature Fetcher] Using the '{representor.init_name}' representor for the '{backend.transform_name}' backend. {len(records)} records will be fetched.")
 
     ready_idx = set(meta.computed_idx)
     missing_idx = list(set(records_idx) - ready_idx)
     missing_idx.sort()
     missing_records = [idx_to_pairrecord[idx] for idx in missing_idx]
-    print(f"Features for records at indices: {missing_idx} are not cached, extracting...")
+
+    if missing_records:
+        print(f"[Feature Fetcher] Features for records at indices: {missing_idx} are not cached, extracting...")
+    else:
+        print(f"[Feature Fetcher] All features for the requested list are cached, fetching from memory...")
 
     write_to_memory = [representor.forward(backend.extract_feature(record)) for record in missing_records]
     
@@ -190,7 +195,7 @@ def compare_cache(first: CacheMeta, other: CacheMeta, error_log: str="", success
     if first.model != other.model or first.adapter_path != other.adapter_path:
         raise ValueError(f"Model configuration has changed since the cache was created. {error_log}")
 
-    print(f"Cache is up to date. {success_log}")
+    print(f"[Metadata Validator] Metadata correctness confirmed {success_log}")
 
 def write_cache_meta(path: Path | str, meta: CacheMeta):
     path = Path(path)

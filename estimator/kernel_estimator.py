@@ -9,7 +9,7 @@ from numpy.typing import NDArray
 from estimator.keys import generate_apriori_lora_key, get_kernel_run_key, combined_key, generate_lora_init_key, get_backend_key
 from paths import resolve_project_path
 
-from kernel.data import PairRecord
+from kernel.data import PairRecord, load_pair_split
 from kernel.config import save_kernel_run_config, load_kernel_run_config
 from kernel.run import _predict_split, KernelRunConfig, validate_kernel_run_inputs
 from kernel.krr import NystromKRRModel, DualKRRModel
@@ -47,9 +47,15 @@ class KernelDataCard:
     data_dir: str = ""
     key: str = ""
     name: str = "benchmark"
+    num_records: int | None = None
 
     def to_dict(self):
         return asdict(self)
+    
+    def __len__(self):
+        if self.num_records is None:
+            self.num_records = len(load_pair_split(self.data_dir, "hui"))
+        return self.num_records
 
 @dataclass
 class KenerelEstimatorCard:
@@ -219,7 +225,7 @@ def get_kernel_config_path(key: str) -> Path:
     return config_path
 
 def get_kernel_out_path(key: str) -> Path:
-    out_path = resolve_project_path(DEFAULT_KERNEL_OUT_PATH)/key
+    out_path = resolve_project_path(DEFAULT_KERNEL_OUT_PATH)
     return out_path
 
 SUPPORTED_TRANSFORMS = {"identity", "sign", "threshlded_sign"}
@@ -283,8 +289,9 @@ def unpack_translator_context(context: dict[str, Any])->tuple[str,dict[str,Any]]
 def validate_translator_context(translator: dict[str, Any]):
     return unpack_translator_context(translator)
 
-
 def get_estimator(card: lora_ft_JobCard, kernel_config: KernelRunConfig, translator: dict[str, Any] = {"name": "float32", "parameters": {}})-> KenerelEstimatorCard:
+    green_bold_print("[Get Kernel Estimator Card] Starting the kernel card generation sequence>>>")
+    
     #validation and data preparation
     kernel_config = prepare_kernel_config(kernel_config)
     validate_translator_context(translator)
@@ -297,13 +304,13 @@ def get_estimator(card: lora_ft_JobCard, kernel_config: KernelRunConfig, transla
 
     if adapter_path.exists() or run_path.exists():
         _validate_lora_key(lora_key)
-        print(f"Found existing run for {lora_key}, loading metadata and summary")
+        print(f"[Get Kernel Estimator Card] Found existing run for lora key {lora_key[:10]}...")
     else:
-        print(f"No existing run found for {lora_key}, starting fine-tuning job")
+        print(f"[Get Kernel Estimator Card] No existing run found for lora key {lora_key[:10]}..., starting fine-tuning job")
         fine_tune_on_random_subset(resolved_card)
 
-    kernel_key = get_kernel_run_key(kernel_config)
-    estimator_key = combined_key(lora_key=lora_key, kernel_key=kernel_key)
+    print(f"[Get Kernel Estimator Card] The fine-tuned lora model is ready")
+    estimator_key = combined_key(lora_key=lora_key, kernel_key=get_kernel_run_key(kernel_config))
 
     weight_path = get_kernel_weights_path(estimator_key)
     kernel_config.adapter_path = str(adapter_path)
@@ -313,18 +320,23 @@ def get_estimator(card: lora_ft_JobCard, kernel_config: KernelRunConfig, transla
     kernel_config.output_root = str(get_kernel_out_path(estimator_key))
     validate_kernel_run_inputs(kernel_config)
 
+    green_bold_print(f"[Get Kernel Estimator Card] Kernel-run config is ready, initialising kernel weights. Data path is set to {kernel_config.data_dir}. Adapter path is set to {kernel_config.adapter_path}. Output root is set to {kernel_config.output_root}")
+
     if weight_path.exists():
-        print("Found a precomputed kernel. Loading")
+        print(f"[Get Kernel Estimator Card] Found precomputed kernel weights. Loading")
         kernel_payload = _load_model(weight_path)
     else:
-        print("No cached kernel found. Running the kernel instantiation job")
+        print(f"[Get Kernel Estimator Card] No precomputed kernel weights found. Running the kernel instantiation job")
         kernel_payload = _instantiate_kernel(kernel_config, kernel_path, estimator_key)
+        print(f"[Get Kernel Estimator Card] Kernel weights are ready. Saving the kernel weights")
         _save_model(model=kernel_payload["model"],
                     payload=kernel_payload["payload"],
                     train_features=kernel_payload["train_features"],
                     path = weight_path,
                     )
-
+        print(f"[Get Kernel Estimator Card] Kernel weights are saved at {weight_path}")
+    green_bold_print(f"[Get Kernel Estimator Card] The kernel estimator card is ready for estimator key {estimator_key[:10]}...")
+   
     return KenerelEstimatorCard(
                                 kernel_config_path=kernel_path,
                                 weights_path=weight_path,
@@ -338,6 +350,8 @@ def get_estimator(card: lora_ft_JobCard, kernel_config: KernelRunConfig, transla
 
 
 def prepare_estimator(card: KenerelEstimatorCard):
+    green_bold_print(f"[Prepare Kernel Estimator] Starting the payload preparation sequence>>>")
+    
     kernel_config = prepare_kernel_config(load_kernel_run_config(card.kernel_config_path))
     validate_kernel_run_inputs(kernel_config)
     validate_translator_context(card.translator)
@@ -372,6 +386,8 @@ def estimate_loss(payload: KernelEsimatorPayload,
                   dataset: KernelDataCard,
                   ):
     
+    green_bold_print("[Loss Estimation] Starting the loss estimation sequence>>>")
+
     config = payload.config
     backend = payload.backend
     representor = payload.representor
@@ -384,18 +400,21 @@ def estimate_loss(payload: KernelEsimatorPayload,
     transform_params = backend.transform_params
 
     if not representor.ready or backend.dim is None:
+        green_bold_print(f"[Loss Estimation] The representor is not fitted yet, fitting on the first record...")
         representor.fit(backend.extract_feature(records[0][1]))
     dim = backend.dim if backend.dim is not None else 0
 
     key = combined_key(backend_key=payload.backend_key, representor_key=representor.get_key(), dataset_key=dataset.key)
-    green_bold_print(key)
+    
+    computed_idx = []
 
     if get_cache_meta_path(key).exists():
+        print(f"[Loss Estimation] Found existing cache metadata for key: {key[:10]}..., validating the cache metadata...")
         meta_a = get_cache_meta(get_cache_meta_path(key))
         meta_b = CacheMeta(key=key,
                            feature_transform_name=transform_name,
                            feature_transform_params=transform_params,
-                           num_records=len(records),
+                           num_records=len(dataset),
                            feature_dim=dim,
                            model=model,
                            adapter_path=adapter_path,
@@ -403,22 +422,30 @@ def estimate_loss(payload: KernelEsimatorPayload,
                            computed_idx=[],
                            representor_args=representor.args,
                            )
-        compare_cache(meta_a, meta_b, error_log=f"Cache key: {key}", success_log=f"Cache key: {key}")
+        compare_cache(meta_a, meta_b, error_log=f"Cache key: {key[:10]}...", success_log=f"Cache key: {key}")
+        computed_idx = meta_a.computed_idx
+    else:
+        print(f"[Loss Estimation] No cache metadata found for key: {key[:10]}...")
 
+    print(f"[Loss Estimation] Writing new cache metadata for key: {key[:10]}...")
     write_cache_meta(get_cache_meta_path(key), CacheMeta(
         key = key,
         feature_transform_name = transform_name,
         feature_transform_params = transform_params,
-        num_records = len(records),
+        num_records = len(dataset),
         feature_dim = dim,
         model = model,
         adapter_path = adapter_path,
         representor_name = representor.init_name,
         representor_args = representor.args,
+        computed_idx=computed_idx,
     ))
 
-    _prepare_cache_matrix(get_cache_matrix_path(key), expected_feature_d=dim, expected_records_n=len(records))
+    green_bold_print(f"[Loss Estimation] Metadata is ready. Preparing the feature cache matrix.")
+    _prepare_cache_matrix(get_cache_matrix_path(key), expected_feature_d=dim, expected_records_n=len(dataset))
     features = _fetch_features_by_idx(get_cache_meta_path(key),get_cache_matrix_path(key), records, backend)
+
+    print(f"[Loss Estimation] Features are ready. Starting the loss prediction.")
 
     pred_delta = _predict_split(
             config=config,
