@@ -10,7 +10,7 @@ from estimator.jobs import (
                             lora_ft_JobCard, 
                             prepare_lora_job_card,
                             load_pair_idx,
-                            _validate_lora_key,
+                            validate_lora_by_key,
                             get_adapter_path_from_lora_key,
                             get_command_path_from_lora_key,
                             get_run_dir_from_lora_key,
@@ -86,7 +86,7 @@ def get_estimator_from_jobcard(card: lora_ft_JobCard):
     run_path = get_run_dir_from_lora_key(lora_key, existing=False)
     
     if adapter_path.exists() or run_path.exists():
-        _validate_lora_key(lora_key)
+        validate_lora_by_key(lora_key)
         print(f"Found existing run for {lora_key}, loading metadata and summary")
     else:
         print(f"No existing run found for {lora_key}, starting fine-tuning job")

@@ -167,7 +167,7 @@ def get_kernel_run_key(config: KernelRunConfig) -> str:
 
 
 def get_backend_key(config: KernelRunConfig) -> str:
-    GET_KERNEL_SPECS = ["backend", "backend_args"]
+    GET_KERNEL_SPECS = ["backend", "backend_args", "seed"]
 
     dict_config = config.to_dict()
     

@@ -201,10 +201,15 @@ def sampled_data_from_configs(args: lora_ft_JobCard, run_dir: str | Path) -> tup
     return train_data_dir, sampling_meta
 
 
+def blue_bold_print(msg: str):
+    print(f"\033[1m\033[94m{msg}\033[0m")
+
+
 def fine_tune_on_random_subset(args: lora_ft_JobCard) -> tuple[LoraRunConfig,RunPaths] | None:
     """
         Runs LoRA fine-tuning job specified by ft_job_args.
     """
+    blue_bold_print(f"[Fine-tuning] Starting fine-tuning job.")
 
     config = load_lora_run_config(args.config)
     if args.base_model is not None:
@@ -216,27 +221,19 @@ def fine_tune_on_random_subset(args: lora_ft_JobCard) -> tuple[LoraRunConfig,Run
     sampling_meta = None
     subset_training_meta = None
     verbose = (args.verbose!=0)
-    if verbose: print("Verbose mode ACTIVATED...")
 
     if args.sample_selector:
-        if verbose: print("We cooking some selectors here...")
+        blue_bold_print(f"[Sample Selector] Preparing the training subset using the sample selector {args.sample_selector}...")
         train_data_dir, sampling_meta = sampled_data_from_configs(args, paths.run_dir)
-        if verbose: print("Nicely done!")
+        blue_bold_print(f"[Sample Selector] Training subset is ready at {train_data_dir}.")
 
-        if args.selector_debug:
-            print(
-                "[selector] selected "
-                f"{sampling_meta['selected_train_examples']}/"
-                f"{sampling_meta['original_train_examples']} training rows; "
-                f"sampled_data_dir={sampling_meta['sampled_data_dir']}",
-                flush=True,
-            )
         config, subset_training_meta = _apply_subset_training_policy(
             config,
             sampling_meta,
         )
 
     save_lora_run_config(config, paths.resolved_config_path)
+    blue_bold_print(f"LoRA run configuration is saved at {paths.resolved_config_path}")
     metadata = build_run_metadata(
         config=config,
         paths=paths,
@@ -295,9 +292,11 @@ def fine_tune_on_random_subset(args: lora_ft_JobCard) -> tuple[LoraRunConfig,Run
     status = "completed" if train_exit_code == 0 else "failed"
     test_exit_code: int | None = None
 
-    if verbose and status=="failed": print("Bro, we've failed!...")
+    if verbose and status=="failed": red_bold_print("[Fine-tuning] Training failed.")
 
+    green_bold_print(f"[Fine-tuning] Training finished with status {status}.")
     if train_exit_code == 0 and config.test_after_train and not args.skip_test:
+        blue_bold_print(f"[Testing] Starting testing phase...")
         test_command = build_test_command(config, paths, data_dir=train_data_dir)
         test_exit_code = run_command_with_logging(
             command=test_command,
@@ -307,7 +306,9 @@ def fine_tune_on_random_subset(args: lora_ft_JobCard) -> tuple[LoraRunConfig,Run
         )
         if test_exit_code != 0:
             status = "failed"
+        green_bold_print(f"[Testing] Testing finished with status {status}.")
 
+    blue_bold_print(f"[Fine-tuning] Writing metadata at {paths.metadata_path} and summary at {paths.summary_path}...")
     metadata["status"] = status
     metadata["train_exit_code"] = train_exit_code
     metadata["test_exit_code"] = test_exit_code
@@ -557,7 +558,12 @@ def get_adapter_path_from_lora_key(lora_key: str, existing: bool = True) -> Path
         raise FileNotFoundError(f"Adapter not found at {adapter_path}")
     return adapter_path
 
-def _validate_lora_key(lora_key: str) -> Any:
+
+def green_bold_print(msg: str):
+    print(f"\033[1m\033[92m{msg}\033[0m") 
+
+
+def validate_lora_by_key(lora_key: str) -> Any:
     GOOD_STATUS = {"completed"}
     ADAPTER_FILES = {"adapter_config.json", "adapters.safetensors"}
     RUN_FILES = {
@@ -595,4 +601,5 @@ def _validate_lora_key(lora_key: str) -> Any:
     get_status = json.loads(meta_path.read_text()).get("status", None)
     if (get_status == None) or (not get_status in GOOD_STATUS):
         raise ValueError(f"The provided run is not completed. Metadata: {meta_path}")
+    green_bold_print(f"[LoRA Files Verification] Validation passed for lora key {lora_key[:10]}...")
 
