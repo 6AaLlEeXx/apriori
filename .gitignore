@@ -21,5 +21,3 @@ estimator/feature_cache
 estimator/kernels
 
 estimator/lora_models
-
-**/TEST*
