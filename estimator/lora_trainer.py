@@ -53,14 +53,6 @@ SUBSET_ITERS_POLICIES = {
 
 DEFAULT_SELECTOR_PATH = "selectors/random.py"
 
-# @dataclass
-# class LoraRunConfig:
-#     base_model: str = "mlx-community/SmolLM2-1.7B-Instruct"
-#     mlx_command: str = "mlx_lm.lora"
-#     mlx_args: dict[str, Any] = field(default_factory=dict)
-#     subset_training: dict[str, Any] = field(default_factory=dict)
-#     extra_args: list[str] = field(default_factory=list)
-
 
 @dataclass
 class SelectorConfig():
@@ -80,6 +72,7 @@ def combined_key(**keys)->str:
     for k, v in keys.items():
         key = f"{key}{k}={v};"
     return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
 
 class LoraRunHash:
     def __init__(self, lora_run_config: LoraRunConfig, selector_args: SelectorConfig) -> None:
@@ -222,6 +215,7 @@ class LoraRunHash:
         encoded = f"{payload_key}_{trainset_key}".encode("utf-8")
 
         return hashlib.sha256(encoded).hexdigest()
+
 
 class LoraTrainer:
     def __init__(self, lora_config: LoraRunConfig, selector_args: SelectorConfig) -> None:

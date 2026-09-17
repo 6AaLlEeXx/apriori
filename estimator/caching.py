@@ -47,10 +47,13 @@ class BackendConfigsNotFound(ConfigError):
         super().__init__(message)
 
 class FeatureExtractor:
-    '''Combines lora backend and transformation apply (sign/thresholded_sign) on call.
+    '''
+        Combines lora backend and transformation apply (sign/thresholded_sign) on call.
         Use .smoke_extractor to get a feature ectractor for debug.
         
-        Feature extractor is passed to fetching functions to compute and save new features'''
+        Feature extractor is passed to fetching functions to compute and save new features
+    '''
+    
     def __init__(self, config: KernelRunConfig, lazy = False):
         '''Takes kernel run cinfig to extract information about the backend and transformations.
         Use lazy=True if you don't want to load the heavy backend on init'''
@@ -976,8 +979,11 @@ class ShardedCache():
             del self.__meta.key_to_idx[key]
 
     def retrieve(self, keys: list[str]) -> list[Any]:
-        '''Returns features with provided keys from cache. If fails to get a feature,
-        in case it is not stored, returns None'''
+        '''
+        Returns features with provided keys from cache. If fails to get a feature,
+        in case it is not stored, returns None
+        '''
+
         size = self.__meta.size
         triplet_ids = []
         missed_at = []
@@ -1033,7 +1039,10 @@ class ShardedCache():
             self.root.rmdir()
 
     def vipe(self) -> None:
-        '''Deletes all the data files associated with the caching session. Meta data is set to init state'''
+        '''
+        Deletes all the data files associated with the caching session. 
+        Meta data is set to init state
+        '''
         blocks = list(self.__meta.block_paths.values())
         for block in blocks:
             block.unlink(True)
@@ -1042,7 +1051,8 @@ class ShardedCache():
 
 
 class IndexedCacheConfig(BaseJSONConfig):
-    '''Metadata object keep all the essential information about
+    '''
+    Metadata object keep all the essential information about
     indexed caching system.
     
     Indexed cache stores all features in one matrix prepared in advance.
@@ -1052,7 +1062,8 @@ class IndexedCacheConfig(BaseJSONConfig):
     num_features: Number of features stored in memory
     feature_dim: dimension of features stored
     dtype: type in which data is stored
-    root: root path to the directory where metadata and fature matrix are stored'''
+    root: root path to the directory where metadata and fature matrix are stored
+    '''
 
     cache_type : str = 'monolith'
     features_path : Path
@@ -1076,7 +1087,9 @@ class IndexedCacheConfig(BaseJSONConfig):
 
     
 class IndexedCache():
-    '''Writes and reads data from indexed cache storage'''
+    '''
+    Writes and reads data from indexed cache storage
+    '''
     def __init__(self, root_dir: str | Path, num_features: int, dim: int, dtype: DType | None = None, exists_ok: bool = False) -> None:
         full_path = Path(root_dir).resolve()
         if full_path.exists() and not exists_ok:
@@ -1192,7 +1205,9 @@ class IndexedCache():
         return cached
 
     def write(self, idx: list[int], features: Array | list[Array]) -> None:
-        '''Writes features to the given indices in cahe matrix'''
+        '''
+        Writes features to the given indices in cahe matrix
+        '''
         values = _normalize_features_input(features)
         num = values.shape[0]
         dim = values.shape[1]
@@ -1307,8 +1322,10 @@ def safe_args_from_extractor(representor_name: RepresentorName, extractor: Featu
 
 
 class IndexedRepresentorCache(IndexedCacheConfig):
-    '''Combines indexed cache with representor. Applies
-    representor transformation on reads and writes automatically'''
+    '''
+    Combines indexed cache with representor. Applies
+    representor transformation on reads and writes automatically
+    '''
     representor_name: RepresentorName
     representor_args: dict[str, Any]
 
@@ -1431,9 +1448,11 @@ class ShardedRepresentorCache(ShardedCacheConfig):
         self.__get_cache().vipe()
 
 class ShardedFeatureFetch(ShardedRepresentorCache):
-    '''Combines represented sharded cache with features extractor.
+    '''
+        Combines represented sharded cache with features extractor.
         Uses feature extractor when a reteived feature is a miss to compute and save it.
-        Fetch function ensure that the feature is always returnded bu computing in when needed.'''
+        Fetch function ensure that the feature is always returnded bu computing in when needed.
+    '''
     def __safe_args_from_extractor(self, extractor: FeatureExtractor) -> dict[str,Any]:
         return safe_args_from_extractor(self.representor_name, extractor)
         
@@ -1483,9 +1502,12 @@ class ShardedFeatureFetch(ShardedRepresentorCache):
 
 
 class IndexedFeatureFetch(IndexedRepresentorCache):
-    '''Combines represented indexed cache with features extractor.
-            Uses feature extractor when a reteived feature is a miss to compute and save it.
-            Fetch function ensure that the feature is always returnded bu computing in when needed.'''
+    '''
+        Combines represented indexed cache with features extractor.
+        Uses feature extractor when a reteived feature is a miss to compute and save it.
+        Fetch function ensure that the feature is always returnded bu computing in when needed.
+    '''
+
     def __safe_args_from_extractor(self, extractor: FeatureExtractor) -> dict[str,Any]:
         return safe_args_from_extractor(self.representor_name, extractor)
         
